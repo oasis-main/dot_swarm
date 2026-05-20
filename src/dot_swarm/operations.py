@@ -30,7 +30,7 @@ from .models import (
 # ---------------------------------------------------------------------------
 
 SECTION_RE = re.compile(r"^## (Active|Pending|Done)$", re.MULTILINE)
-FIELD_RE = re.compile(r"^\s{6}(?P<key>priority|project|notes|depends|refs|proof|inspect_fails|max_retries): (?P<value>.+)$")
+FIELD_RE = re.compile(r"^\s{6}(?P<key>priority|project|notes|depends|supersedes|duplicates|refs|proof|inspect_fails|max_retries): (?P<value>.+)$")
 
 
 def read_queue(paths: SwarmPaths) -> tuple[list[WorkItem], list[WorkItem], list[WorkItem]]:
@@ -339,6 +339,10 @@ def _parse_items(section_text: str) -> list[WorkItem]:
                 current_item.notes = value
             elif key == "depends":
                 current_item.depends = [d.strip() for d in value.split(",")]
+            elif key == "supersedes":
+                current_item.supersedes = [d.strip() for d in value.split(",") if d.strip()]
+            elif key == "duplicates":
+                current_item.duplicates = [d.strip() for d in value.split(",") if d.strip()]
             elif key == "refs":
                 current_item.refs = [r.strip() for r in value.split(",")]
             elif key == "proof":
@@ -403,6 +407,27 @@ def next_item_id(paths: SwarmPaths, division_code: str) -> str:
         if m := id_re.match(item.id):
             max_num = max(max_num, int(m.group(1)))
     return f"{division_code}-{max_num + 1:03d}"
+
+
+def next_hash_id(paths: SwarmPaths, prefix: str = "sw") -> str:
+    """Generate a content-free hash-style ID like ``sw-a1b2``.
+
+    Beads-style short IDs help avoid merge collisions when multiple workers
+    add items concurrently in separate worktrees. Collisions inside the
+    current queue are detected and retried.
+    """
+    import secrets
+    active, pending, done = read_queue(paths)
+    taken = {i.id for i in active + pending + done}
+    for _ in range(32):
+        candidate = f"{prefix}-{secrets.token_hex(2)}"
+        if candidate not in taken:
+            return candidate
+    # 32 collisions in a 65k space means the queue is huge — widen to 6 hex.
+    while True:
+        candidate = f"{prefix}-{secrets.token_hex(3)}"
+        if candidate not in taken:
+            return candidate
 
 
 def claim_item(paths: SwarmPaths, item_id: str, agent_id: str, compete: bool = False) -> WorkItem:
@@ -527,10 +552,20 @@ def add_item(
     notes: str = "",
     refs: list[str] | None = None,
     depends: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    duplicates: list[str] | None = None,
+    hash_id: bool = False,
 ) -> WorkItem:
-    """Add a new OPEN work item with an auto-assigned ID."""
-    code = division_code or _division_code_from_paths(paths)
-    item_id = next_item_id(paths, code)
+    """Add a new OPEN work item with an auto-assigned ID.
+
+    Set ``hash_id=True`` for a beads-style ``sw-XXXX`` ID that won't collide
+    when two worktrees add items in parallel before merging.
+    """
+    if hash_id:
+        item_id = next_hash_id(paths)
+    else:
+        code = division_code or _division_code_from_paths(paths)
+        item_id = next_item_id(paths, code)
     item = WorkItem(
         id=item_id,
         state=ItemState.OPEN,
@@ -540,6 +575,8 @@ def add_item(
         notes=notes,
         refs=refs or [],
         depends=depends or [],
+        supersedes=supersedes or [],
+        duplicates=duplicates or [],
     )
     active, pending, done = read_queue(paths)
     pending.append(item)
@@ -552,12 +589,24 @@ def add_item(
 # ---------------------------------------------------------------------------
 
 def ready_items(paths: SwarmPaths) -> list[WorkItem]:
-    """Return OPEN pending items with all dependencies completed (à la `bd ready`)."""
+    """Return OPEN pending items with all dependencies completed (à la `bd ready`).
+
+    Items are also filtered out if they're known duplicates (``duplicates:``
+    points to another item) or if another item supersedes them (some other
+    item lists this one in its ``supersedes:`` field).
+    """
     active, pending, done = read_queue(paths)
     done_ids = {i.id for i in done}
+    superseded: set[str] = set()
+    for i in active + pending + done:
+        superseded.update(i.supersedes)
     result = []
     for item in pending:
         if item.state != ItemState.OPEN:
+            continue
+        if item.duplicates:
+            continue
+        if item.id in superseded:
             continue
         if not item.depends or all(dep in done_ids for dep in item.depends):
             result.append(item)

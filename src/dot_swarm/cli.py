@@ -283,12 +283,31 @@ def migrate(ctx: click.Context, dry_run: bool, all_divisions: bool, depth: int) 
 
 @cli.command()
 @click.option("--all", "show_all", is_flag=True, help="Show full queue")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON for agent scripts")
 @click.pass_context
-def status(ctx: click.Context, show_all: bool) -> None:
+def status(ctx: click.Context, show_all: bool, as_json: bool) -> None:
     """Show current state and next available work items."""
+    import json as _json
     paths = _get_paths(ctx.obj["path"])
     state = read_state(paths)
     active, pending, done = read_queue(paths)
+
+    if as_json:
+        click.echo(_json.dumps({
+            "name": paths.root.parent.name,
+            "state": {k: state.get(k) for k in
+                      ["Last touched", "Current focus", "Active items",
+                       "Blockers", "Handoff note"]},
+            "counts": {"active": len(active), "pending": len(pending), "done": len(done)},
+            "active": [{"id": i.id, "description": i.description,
+                        "state": i.state.value, "claimed_by": i.claimed_by}
+                       for i in active],
+            "pending": [{"id": i.id, "description": i.description,
+                         "priority": i.priority.value, "depends": i.depends,
+                         "supersedes": i.supersedes, "duplicates": i.duplicates}
+                        for i in (pending if show_all else pending[:5])],
+        }, indent=2))
+        return
 
     name = paths.root.parent.name
     click.echo(f"\n{'─' * 60}")
@@ -338,7 +357,9 @@ def ready(ctx: click.Context, as_json: bool) -> None:
     if as_json:
         click.echo(_json.dumps([
             {"id": i.id, "description": i.description,
-             "priority": i.priority.value, "project": i.project}
+             "priority": i.priority.value, "project": i.project,
+             "depends": i.depends, "supersedes": i.supersedes,
+             "duplicates": i.duplicates, "refs": i.refs}
             for i in items
         ], indent=2))
         return
@@ -477,11 +498,16 @@ def done(ctx: click.Context, item_id: str, agent: str | None, note: str,
 @click.option("--project", default="misc")
 @click.option("--notes", default="")
 @click.option("--refs", default="", help="Comma-separated refs e.g. 'oasis-x/.swarm/queue.md#ORG-001'")
-@click.option("--depends", default="", help="Comma-separated item IDs")
+@click.option("--depends", default="", help="Comma-separated item IDs this blocks on")
+@click.option("--supersedes", default="", help="Comma-separated item IDs this replaces")
+@click.option("--duplicates", default="", help="Comma-separated item IDs this is a duplicate of")
+@click.option("--hash-id", "hash_id", is_flag=True,
+              help="Use a beads-style sw-XXXX hash ID instead of DIVISION-NNN (avoids merge collisions)")
 @click.option("--code", default=None, help="Division code override")
 @click.pass_context
 def add(ctx: click.Context, description: str, priority: str, project: str,
-        notes: str, refs: str, depends: str, code: str | None) -> None:
+        notes: str, refs: str, depends: str, supersedes: str, duplicates: str,
+        hash_id: bool, code: str | None) -> None:
     """Add a new work item to the queue."""
     paths = _get_paths(ctx.obj["path"])
     division_code = code or _division_code_from_paths(paths)
@@ -494,6 +520,9 @@ def add(ctx: click.Context, description: str, priority: str, project: str,
         notes=notes,
         refs=[r.strip() for r in refs.split(",") if r.strip()],
         depends=[d.strip() for d in depends.split(",") if d.strip()],
+        supersedes=[s.strip() for s in supersedes.split(",") if s.strip()],
+        duplicates=[d.strip() for d in duplicates.split(",") if d.strip()],
+        hash_id=hash_id,
     )
     click.echo(f"Added [{item.id}] ({priority}) {description}")
 
@@ -1865,9 +1894,12 @@ def unblock_cmd(ctx: click.Context, item_id: str, reclaim: bool, agent_id: str |
               type=click.Choice(["critical", "high", "medium", "low"]),
               help="Filter by priority")
 @click.option("--project", default=None, help="Filter by project")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON for agent scripts")
 @click.pass_context
-def ls_cmd(ctx: click.Context, section: str, priority: str | None, project: str | None) -> None:
+def ls_cmd(ctx: click.Context, section: str, priority: str | None,
+           project: str | None, as_json: bool) -> None:
     """List work items from the queue."""
+    import json as _json
     paths = _get_paths(ctx.obj["path"])
     active, pending, done = read_queue(paths)
 
@@ -1879,17 +1911,38 @@ def ls_cmd(ctx: click.Context, section: str, priority: str | None, project: str 
     if section in ("done", "all"):
         sections.append(("Done", done))
 
+    def _filter(items):
+        out = items
+        if priority:
+            out = [i for i in out if i.priority.value == priority]
+        if project:
+            out = [i for i in out if i.project == project]
+        return out
+
+    if as_json:
+        payload = {
+            label.lower(): [
+                {
+                    "id": i.id, "state": i.state.value, "description": i.description,
+                    "priority": i.priority.value, "project": i.project,
+                    "claimed_by": i.claimed_by, "depends": i.depends,
+                    "supersedes": i.supersedes, "duplicates": i.duplicates,
+                    "refs": i.refs,
+                }
+                for i in _filter(items)
+            ]
+            for label, items in sections
+        }
+        click.echo(_json.dumps(payload, indent=2))
+        return
+
     STATE_ICON = {
         "OPEN": "[ ]", "CLAIMED": "[>]", "PARTIAL": "[~]",
         "BLOCKED": "[!]", "DONE": "[x]", "CANCELLED": "[-]",
     }
 
     for label, items in sections:
-        filtered = items
-        if priority:
-            filtered = [i for i in filtered if i.priority.value == priority]
-        if project:
-            filtered = [i for i in filtered if i.project == project]
+        filtered = _filter(items)
         if filtered:
             click.echo(f"\n## {label}")
             for item in filtered:

@@ -57,6 +57,8 @@ class WorkItem:
     done_at: datetime | None = None
     refs: list[str] = field(default_factory=list)
     depends: list[str] = field(default_factory=list)
+    supersedes: list[str] = field(default_factory=list)
+    duplicates: list[str] = field(default_factory=list)
     proof: str = ""              # worker-supplied evidence for Inspector verification
     inspect_fails: int = 0      # times Inspector has rejected this item
     max_retries: int = 0        # 0 = use role default; >0 overrides at task level
@@ -64,12 +66,10 @@ class WorkItem:
     competitors: list["Claim"] = field(default_factory=list)
 
     # Regex patterns for parsing queue.md lines
-    # Matches: - [>] [ORG-002] [CLAIMED · claude-code · 2026-03-26T14:30Z] description
-    #      or: - [ ] [ORG-002] [OPEN] description
-    #      or: - [x] [ORG-002] [DONE · 2026-03-26T16:45Z] description
+    # Matches uppercase-prefix IDs like ORG-002 or hash IDs like sw-a1b2.
     ITEM_RE = re.compile(
         r"^- \[(?P<checkbox>.)\] "
-        r"\[(?P<id>[A-Z]+-\d+)\] "
+        r"\[(?P<id>[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+)\] "
         r"\[(?P<stamp>[^\]]+)\] "
         r"(?P<description>.+)$"
     )
@@ -81,7 +81,7 @@ class WorkItem:
     BLOCKED_STAMP_RE = re.compile(r"BLOCKED · (?P<reason>.+)")
 
     FIELD_RE = re.compile(
-        r"^\s+(?P<key>priority|project|notes|depends|refs|proof|inspect_fails|max_retries): (?P<value>.+)$"
+        r"^\s+(?P<key>priority|project|notes|depends|supersedes|duplicates|refs|proof|inspect_fails|max_retries): (?P<value>.+)$"
     )
 
     @classmethod
@@ -128,6 +128,10 @@ class WorkItem:
             fields.append(f"notes: {self.notes}")
         if self.depends:
             fields.append(f"depends: {', '.join(self.depends)}")
+        if self.supersedes:
+            fields.append(f"supersedes: {', '.join(self.supersedes)}")
+        if self.duplicates:
+            fields.append(f"duplicates: {', '.join(self.duplicates)}")
         if self.refs:
             fields.append(f"refs: {', '.join(self.refs)}")
         if self.proof:

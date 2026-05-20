@@ -163,3 +163,85 @@ def test_handoff_produces_output(tmp_path: Path) -> None:
     result = runner.invoke(cli, ["--path", str(div), "handoff"])
     assert result.exit_code == 0
     assert len(result.output) > 20
+
+
+# ---------------------------------------------------------------------------
+# Hash IDs + new edge flags
+# ---------------------------------------------------------------------------
+
+def test_add_with_hash_id(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--path", str(div), "add", "hashy", "--hash-id"])
+    assert result.exit_code == 0
+    queue = (div / ".swarm" / "queue.md").read_text()
+    import re
+    assert re.search(r"\[sw-[a-f0-9]+\]", queue), queue
+
+
+def test_add_with_supersedes_and_duplicates(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "old"])
+    queue = (div / ".swarm" / "queue.md").read_text()
+    import re
+    old_id = re.search(r"\[(\w+-\d+)\]", queue).group(1)
+    result = runner.invoke(cli, [
+        "--path", str(div), "add", "new",
+        "--supersedes", old_id,
+    ])
+    assert result.exit_code == 0
+    queue = (div / ".swarm" / "queue.md").read_text()
+    assert f"supersedes: {old_id}" in queue
+
+
+def test_ready_json_includes_edge_fields(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "ready", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert isinstance(data, list) and data
+    assert "supersedes" in data[0] and "duplicates" in data[0]
+
+
+def test_ls_json_output(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "ls", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "pending" in data
+    assert data["pending"][0]["description"] == "alpha"
+
+
+def test_status_json_output(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "status", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["counts"]["pending"] >= 1
+
+
+def test_ready_hides_superseded_via_cli(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "old"])
+    queue = (div / ".swarm" / "queue.md").read_text()
+    import re
+    old_id = re.search(r"\[(\w+-\d+)\]", queue).group(1)
+    runner.invoke(cli, ["--path", str(div), "add", "new", "--supersedes", old_id])
+
+    result = runner.invoke(cli, ["--path", str(div), "ready", "--json"])
+    data = json.loads(result.output)
+    descs = {i["description"] for i in data}
+    assert "old" not in descs
+    assert "new" in descs
