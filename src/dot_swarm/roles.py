@@ -58,7 +58,7 @@ def load_role(paths: SwarmPaths, role_name: str) -> RoleConfig | None:
     cfg_file = _role_file(paths, role_name)
     if not cfg_file.exists():
         return None
-    data = json.loads(cfg_file.read_text())
+    data = json.loads(cfg_file.read_text(encoding='utf-8'))
     return RoleConfig(
         name=role_name,
         enabled=data.get("enabled", True),
@@ -105,7 +105,7 @@ def enable_role(
         "assigned_agent": cfg.assigned_agent,
         "extra": cfg.extra,
     }
-    _role_file(paths, role_name).write_text(json.dumps(payload, indent=2) + "\n")
+    _role_file(paths, role_name).write_text(json.dumps(payload, indent=2) + "\n", encoding='utf-8')
     return cfg
 
 

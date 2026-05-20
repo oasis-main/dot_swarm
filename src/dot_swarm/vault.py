@@ -124,7 +124,7 @@ def generate_swarm_key(swarm_path: Path) -> SwarmKeyMetadata:
         fingerprint=fingerprint_for(key),
         created=_utcnow(),
     )
-    meta_file.write_text(json.dumps(meta.__dict__, indent=2))
+    meta_file.write_text(json.dumps(meta.__dict__, indent=2), encoding='utf-8')
     return meta
 
 
@@ -146,7 +146,7 @@ def load_swarm_key_metadata(swarm_path: Path) -> SwarmKeyMetadata:
     f = swarm_path / SWARM_KEY_METADATA
     if not f.exists():
         raise FileNotFoundError(f"No swarm key metadata at {f}")
-    data = json.loads(f.read_text())
+    data = json.loads(f.read_text(encoding='utf-8'))
     return SwarmKeyMetadata(**data)
 
 
@@ -312,7 +312,7 @@ def rotate_swarm_key(swarm_path: Path) -> tuple[SwarmKeyMetadata, RotationResult
         created=load_swarm_key_metadata(swarm_path).created,
         rotated_at=_utcnow(),
     )
-    (swarm_path / SWARM_KEY_METADATA).write_text(json.dumps(meta.__dict__, indent=2))
+    (swarm_path / SWARM_KEY_METADATA).write_text(json.dumps(meta.__dict__, indent=2), encoding='utf-8')
     return meta, result
 
 

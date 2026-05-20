@@ -69,9 +69,10 @@ def test_unkeyed_swarm_reports_unkeyed(unkeyed_swarm):
 
 
 def test_seal_sweep_reports_per_file(keyed_swarm):
-    (keyed_swarm / "queue.md").write_text("queue content")
+    (keyed_swarm / "queue.md").write_text("queue content", encoding='utf-8')
     (keyed_swarm / "state.md").write_text(
-        _seals.seal_content("state content", "claude", keyed_swarm)
+        _seals.seal_content("state content", "claude", keyed_swarm),
+        encoding='utf-8',
     )
 
     reports = _seals.scan_swarm_seals(keyed_swarm)

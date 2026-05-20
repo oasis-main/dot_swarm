@@ -132,7 +132,7 @@ def load_plan(paths: SwarmPaths, name: str) -> Plan | None:
     f = _plan_file(paths, name)
     if not f.exists():
         return None
-    text = f.read_text()
+    text = f.read_text(encoding='utf-8')
     fm, body = _parse_frontmatter(text)
 
     plan_inspector = InspectorConfig.from_dict({
@@ -223,7 +223,7 @@ def save_plan(paths: SwarmPaths, plan: Plan) -> Path:
         lines.append("")
 
     f = _plan_file(paths, plan.name)
-    f.write_text("\n".join(lines))
+    f.write_text("\n".join(lines), encoding='utf-8')
     return f
 
 
@@ -239,7 +239,7 @@ def list_plans(paths: SwarmPaths) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _append_run(paths: SwarmPaths, record: dict) -> None:
-    with _runs_file(paths).open("a") as fh:
+    with _runs_file(paths).open("a", encoding='utf-8') as fh:
         fh.write(json.dumps(record) + "\n")
 
 
@@ -248,7 +248,7 @@ def last_run(paths: SwarmPaths, plan_name: str) -> dict | None:
     if not rf.exists():
         return None
     last = None
-    for line in rf.read_text().splitlines():
+    for line in rf.read_text(encoding='utf-8').splitlines():
         try:
             r = json.loads(line)
             if r.get("plan") == plan_name:

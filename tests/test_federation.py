@@ -67,7 +67,7 @@ def peer_identity_file(swarm_b: Path, tmp_path: Path) -> Path:
     """Export swarm_b's identity.json to a temp file, as if shared out-of-band."""
     identity = export_identity(swarm_b)
     out = tmp_path / "peer_b_identity.json"
-    out.write_text(json.dumps(identity, indent=2))
+    out.write_text(json.dumps(identity, indent=2), encoding='utf-8')
     return out
 
 
@@ -165,7 +165,7 @@ def test_revoke_peer_returns_false_when_absent(swarm_a: Path) -> None:
 
 def test_trust_peer_raises_on_missing_fingerprint(swarm_a: Path, tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
-    bad.write_text(json.dumps({"id": "x", "algorithm": "hmac-sha256"}))
+    bad.write_text(json.dumps({"id": "x", "algorithm": "hmac-sha256"}), encoding='utf-8')
     with pytest.raises(ValueError, match="fingerprint"):
         trust_peer(swarm_a, bad)
 
@@ -204,7 +204,7 @@ def test_doorman_blocks_policy_disabled_intent(
     peer = trust_peer(swarm_a, peer_identity_file, scopes=list(ALL_INTENTS))
     # Disable work_request in policy.md
     policy = swarm_a / POLICY_FILE
-    policy.write_text(policy.read_text() + "\ndisabled: work_request\n")
+    policy.write_text(policy.read_text(encoding='utf-8') + "\ndisabled: work_request\n")
     allowed, reason = doorman_check(swarm_a, peer.fingerprint, INTENT_WORK_REQUEST)
     assert allowed is False
     assert "policy" in reason
@@ -261,7 +261,7 @@ def test_write_outbox_creates_file(swarm_a: Path, peer_identity_file: Path) -> N
     peer = trust_peer(swarm_a, peer_identity_file)
     out = write_outbox(swarm_a, peer.fingerprint, INTENT_WORK_REQUEST, {"description": "Help!"})
     assert out.exists()
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding='utf-8'))
     assert data["intent"] == INTENT_WORK_REQUEST
     assert data["signature"] != ""
 
@@ -269,7 +269,7 @@ def test_write_outbox_creates_file(swarm_a: Path, peer_identity_file: Path) -> N
 def test_write_outbox_includes_from_fingerprint(swarm_a: Path, peer_identity_file: Path) -> None:
     peer = trust_peer(swarm_a, peer_identity_file)
     out = write_outbox(swarm_a, peer.fingerprint, INTENT_ALIGNMENT_SIGNAL, {})
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding='utf-8'))
     assert "from_fingerprint" in data
     assert len(data["from_fingerprint"]) > 0
 
@@ -328,7 +328,7 @@ def test_apply_inbox_work_request(swarm_a: Path, swarm_b: Path, peer_identity_fi
     inbox_dir = swarm_a / INBOX_DIR
     inbox_dir.mkdir(parents=True, exist_ok=True)
     msg_file = inbox_dir / "test_msg.json"
-    msg_file.write_text(json.dumps(msg))
+    msg_file.write_text(json.dumps(msg), encoding='utf-8')
 
     result = apply_inbox_message(swarm_a, msg_file, _mock_add_item, object())
     assert result["ok"] is True
@@ -351,7 +351,7 @@ def test_apply_inbox_blocked_by_doorman(swarm_a: Path, tmp_path: Path) -> None:
     inbox_dir = swarm_a / INBOX_DIR
     inbox_dir.mkdir(parents=True, exist_ok=True)
     msg_file = inbox_dir / "attacker_msg.json"
-    msg_file.write_text(json.dumps(msg))
+    msg_file.write_text(json.dumps(msg), encoding='utf-8')
 
     result = apply_inbox_message(swarm_a, msg_file, _mock_add_item, object())
     assert result["ok"] is False
@@ -375,7 +375,7 @@ def test_apply_inbox_alignment_signal_ok(swarm_a: Path, swarm_b: Path, peer_iden
     inbox_dir = swarm_a / INBOX_DIR
     inbox_dir.mkdir(parents=True, exist_ok=True)
     msg_file = inbox_dir / "align_msg.json"
-    msg_file.write_text(json.dumps(msg))
+    msg_file.write_text(json.dumps(msg), encoding='utf-8')
 
     result = apply_inbox_message(swarm_a, msg_file, _mock_add_item, object())
     assert result["ok"] is True
@@ -385,7 +385,7 @@ def test_apply_inbox_handles_corrupt_file(swarm_a: Path) -> None:
     inbox_dir = swarm_a / INBOX_DIR
     inbox_dir.mkdir(parents=True, exist_ok=True)
     bad = inbox_dir / "bad.json"
-    bad.write_text("not valid json {{{{")
+    bad.write_text("not valid json {{{{", encoding='utf-8')
     result = apply_inbox_message(swarm_a, bad, _mock_add_item, object())
     assert result["ok"] is False
     assert "parse error" in result["reason"]

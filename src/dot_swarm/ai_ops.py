@@ -84,7 +84,7 @@ def build_context_bundle(paths: SwarmPaths, context_limit: int = 1200) -> str:
 
     # state.md — typically ~400 chars
     if paths.state.exists():
-        sections.append("--- STATE ---\n" + paths.state.read_text().strip())
+        sections.append("--- STATE ---\n" + paths.state.read_text(encoding='utf-8').strip())
     else:
         sections.append("--- STATE ---\n(state.md not found)")
 
@@ -111,7 +111,7 @@ def build_context_bundle(paths: SwarmPaths, context_limit: int = 1200) -> str:
     # context.md — header (charter)
     if paths.context.exists():
         # Read first ~2000 chars or first 40 lines
-        header = "\n".join(paths.context.read_text().splitlines()[:40])
+        header = "\n".join(paths.context.read_text(encoding='utf-8').splitlines()[:40])
         sections.append("--- CONTEXT (charter) ---\n" + header)
 
     return "\n\n".join(sections)
@@ -373,10 +373,10 @@ def execute_operations(
 def _exec_update_context(paths: SwarmPaths, section: str, content: str) -> None:
     """Replace or append a ## section in context.md."""
     if not paths.context.exists():
-        paths.context.write_text(f"{section}\n\n{content}\n")
+        paths.context.write_text(f"{section}\n\n{content}\n", encoding='utf-8')
         return
 
-    lines = paths.context.read_text().splitlines(keepends=True)
+    lines = paths.context.read_text(encoding='utf-8').splitlines(keepends=True)
 
     # Find the target heading
     target = section.strip()
@@ -401,5 +401,5 @@ def _exec_update_context(paths: SwarmPaths, section: str, content: str) -> None:
 
     # Atomic write
     tmp = paths.context.with_suffix(".md.tmp")
-    tmp.write_text(new_text)
+    tmp.write_text(new_text, encoding='utf-8')
     tmp.replace(paths.context)

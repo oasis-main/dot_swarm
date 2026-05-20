@@ -75,7 +75,7 @@ def test_trail_writes_envelopes_when_keyed(keyed_swarm):
     record = sign_operation(keyed_swarm, "claim", "agent-1", {"item_id": "X-1"})
     append_trail(keyed_swarm, record)
 
-    on_disk = (keyed_swarm / "trail.log").read_text()
+    on_disk = (keyed_swarm / "trail.log").read_text(encoding='utf-8')
     assert _vault.ENVELOPE_PREFIX in on_disk
     assert "agent-1" not in on_disk            # no plaintext leaks
     assert "claim" not in on_disk
@@ -91,7 +91,7 @@ def test_trail_unkeyed_remains_plaintext(swarm):
     record = sign_operation(swarm, "claim", "agent-1", {"item_id": "X-1"})
     append_trail(swarm, record)
 
-    on_disk = (swarm / "trail.log").read_text()
+    on_disk = (swarm / "trail.log").read_text(encoding='utf-8')
     assert _vault.ENVELOPE_PREFIX not in on_disk
     assert "agent-1" in on_disk
     rows = read_trail(swarm)

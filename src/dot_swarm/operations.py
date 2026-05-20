@@ -38,7 +38,7 @@ def read_queue(paths: SwarmPaths) -> tuple[list[WorkItem], list[WorkItem], list[
     if not paths.queue.exists():
         return [], [], []
 
-    text = paths.queue.read_text()
+    text = paths.queue.read_text(encoding='utf-8')
     sections = _split_sections(text)
     active = _parse_items(sections.get("Active", ""))
     pending = _parse_items(sections.get("Pending", ""))
@@ -58,7 +58,7 @@ def read_claims(paths: SwarmPaths) -> list[Claim]:
         return []
     for p in paths.claims.glob("*.json"):
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding='utf-8'))
             claims.append(Claim.from_dict(data))
         except (json.JSONDecodeError, KeyError, ValueError):
             continue
@@ -80,7 +80,7 @@ def write_claim(paths: SwarmPaths, claim: Claim) -> Path:
     while p.exists():  # collision under same-second concurrent writes
         suffix += 1
         p = paths.claims / f"{base}_{suffix}.json"
-    p.write_text(json.dumps(claim.to_dict(), indent=2))
+    p.write_text(json.dumps(claim.to_dict(), indent=2), encoding='utf-8')
     return p
 
 
@@ -788,7 +788,7 @@ def read_state(paths: SwarmPaths) -> dict[str, str]:
     result: dict[str, str] = {}
     handoff_lines: list[str] = []
     in_handoff = False
-    for line in paths.state.read_text().splitlines():
+    for line in paths.state.read_text(encoding='utf-8').splitlines():
         if line.strip() == "## Handoff Note":
             in_handoff = True
             continue
@@ -809,7 +809,7 @@ def write_state(paths: SwarmPaths, updates: dict[str, str]) -> None:
     if not paths.state.exists():
         _create_state_template(paths)
 
-    lines = paths.state.read_text().splitlines()
+    lines = paths.state.read_text(encoding='utf-8').splitlines()
     now = _now_ts()
     updates.setdefault("Last touched", now)
 
@@ -869,7 +869,7 @@ def append_memory(
         entry += f"\n**Trade-off accepted**: {tradeoff}\n"
 
     if paths.memory.exists():
-        existing = paths.memory.read_text()
+        existing = paths.memory.read_text(encoding='utf-8')
         _atomic_write(paths.memory, existing.rstrip() + "\n" + entry)
     else:
         _atomic_write(paths.memory, f"# Memory — {_division_name(paths)}\n\nAppend-only.\n" + entry)

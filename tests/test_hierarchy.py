@@ -24,12 +24,13 @@ def hierarchy(tmp_path: Path):
     
     # Init files
     for f in ["queue.md", "state.md", "context.md", "BOOTSTRAP.md"]:
-        (org_swarm / f).write_text(f"# Org {f}\n")
+        (org_swarm / f).write_text(f"# Org {f}\n", encoding='utf-8')
     
     # Org state template
     (org_swarm / "state.md").write_text(
         "# State - Org\n\n**Last touched**: 2026-03-31T00:00Z by test\n"
-        "**Current focus**: Org focus\n**Active items**: (none)\n**Blockers**: None\n"
+        "**Current focus**: Org focus\n**Active items**: (none)\n**Blockers**: None\n",
+        encoding='utf-8',
     )
 
     div_root = org_root / "oasis-cloud"
@@ -38,12 +39,13 @@ def hierarchy(tmp_path: Path):
     div_swarm.mkdir()
     
     for f in ["queue.md", "state.md", "context.md", "BOOTSTRAP.md"]:
-        (div_swarm / f).write_text(f"# Div {f}\n")
+        (div_swarm / f).write_text(f"# Div {f}\n", encoding='utf-8')
 
     # Div state template
     (div_swarm / "state.md").write_text(
         "# State - Div\n\n**Last touched**: 2026-03-31T00:00Z by test\n"
-        "**Current focus**: Div focus\n**Active items**: (none)\n**Blockers**: None\n"
+        "**Current focus**: Div focus\n**Active items**: (none)\n**Blockers**: None\n",
+        encoding='utf-8',
     )
 
     return org_root, div_root

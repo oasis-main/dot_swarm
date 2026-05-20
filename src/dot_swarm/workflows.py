@@ -385,7 +385,7 @@ def workflow_status(paths: SwarmPaths, name: str) -> dict:
     if not log.exists():
         return {}
     last: dict = {}
-    for line in log.read_text().splitlines():
+    for line in log.read_text(encoding='utf-8').splitlines():
         try:
             entry = json.loads(line)
             if entry.get("workflow_name") == name:

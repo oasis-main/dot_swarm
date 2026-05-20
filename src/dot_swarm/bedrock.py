@@ -26,7 +26,7 @@ def load_config() -> dict:
     """Return config dict with defaults for all keys if file missing."""
     if CONFIG_PATH.exists():
         try:
-            data    = tomllib.loads(CONFIG_PATH.read_text())
+            data    = tomllib.loads(CONFIG_PATH.read_text(encoding='utf-8'))
             bedrock = data.get("bedrock", {})
             ai      = data.get("ai", {})
             ollama  = data.get("ollama", {})
@@ -56,7 +56,7 @@ def save_config(model: str, region: str, interface: str = "bedrock",
         f'[ollama]\nhost  = "{ollama_host}"\nmodel = "{ollama_model}"\n'
     )
     tmp = CONFIG_PATH.with_suffix(".toml.tmp")
-    tmp.write_text(content)
+    tmp.write_text(content, encoding='utf-8')
     tmp.replace(CONFIG_PATH)
 
 

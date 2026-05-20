@@ -15,10 +15,10 @@ from dot_swarm.operations import write_queue
 def swarm_paths(tmp_path):
     swarm = tmp_path / ".swarm"
     swarm.mkdir()
-    (swarm / "queue.md").write_text("# Queue\n\n## Active\n\n## Pending\n\n## Done\n")
-    (swarm / "state.md").write_text("# State\n**Last touched**: 2026-01-01T00:00Z by test\n**Current focus**: none\n")
-    (swarm / "context.md").write_text("# Context\n")
-    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n")
+    (swarm / "queue.md").write_text("# Queue\n\n## Active\n\n## Pending\n\n## Done\n", encoding='utf-8')
+    (swarm / "state.md").write_text("# State\n**Last touched**: 2026-01-01T00:00Z by test\n**Current focus**: none\n", encoding='utf-8')
+    (swarm / "context.md").write_text("# Context\n", encoding='utf-8')
+    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n", encoding='utf-8')
     return SwarmPaths.from_swarm_dir(swarm)
 
 @pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")

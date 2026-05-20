@@ -158,7 +158,7 @@ def spawn_agent(
     else:
         # ollama / gemini: just open interactive, bootstrap written to file
         ctx_file = paths.root / f"_spawn_{item_id}.md"
-        ctx_file.write_text(bootstrap)
+        ctx_file.write_text(bootstrap, encoding='utf-8')
         _send(session, win, f"{agent}  # context: {ctx_file}")
 
     return {

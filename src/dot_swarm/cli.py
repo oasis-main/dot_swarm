@@ -727,7 +727,7 @@ def explore(ctx: click.Context, depth: int) -> None:
                 focus = focus[:47] + "..."
 
             # Crawl coverage: context.md contains a Directory Map?
-            crawled = "✓" if paths.context.exists() and "## Directory Map" in paths.context.read_text() else "·"
+            crawled = "✓" if paths.context.exists() and "## Directory Map" in paths.context.read_text(encoding='utf-8') else "·"
 
             count = f"({len(active)} active, {len(pending)} pending)"
 
@@ -1038,7 +1038,7 @@ def federation_export_id(ctx: click.Context, out: str | None) -> None:
         raise SystemExit(1)
     text = __import__("json").dumps(identity, indent=2)
     if out:
-        Path(out).write_text(text)
+        Path(out).write_text(text, encoding='utf-8')
         click.echo(f"✓ Identity written to {out}")
     else:
         click.echo(text)
@@ -1185,7 +1185,7 @@ def federation_apply(ctx: click.Context, message_file: str, yes: bool) -> None:
 
     try:
         import json as _json
-        data = _json.loads(msg_path.read_text())
+        data = _json.loads(msg_path.read_text(encoding='utf-8'))
     except Exception as exc:
         click.echo(f"Error reading message: {exc}", err=True)
         raise SystemExit(1)
@@ -1678,7 +1678,7 @@ def gui(ctx: click.Context, port: int, open_browser: bool) -> None:
     click.echo("Press Ctrl+C to stop.\n")
     
     if open_browser:
-        Thread(target=lambda: webbrowser.open(f"http://localhost:{port}")).start()
+        Thread(target=lambda: webbrowser.open(f"http://localhost:{port}", encoding='utf-8')).start()
 
     with socketserver.TCPServer(("", port), SwarmHandler) as httpd:
         try:
@@ -1851,7 +1851,7 @@ def unblock_cmd(ctx: click.Context, item_id: str, reclaim: bool, agent_id: str |
         raise SystemExit(1)
 
     # Read raw queue, replace the status stamp
-    raw = paths.queue.read_text()
+    raw = paths.queue.read_text(encoding='utf-8')
 
     # Replace [BLOCKED · ...] with [OPEN] or claim stamp
     import re
@@ -2434,7 +2434,7 @@ def _repo_gitignore(start: Path) -> Path | None:
 def _trail_is_invisible(gitignore: Path) -> bool:
     if not gitignore.exists():
         return False
-    lines = [l.strip() for l in gitignore.read_text().splitlines()]
+    lines = [l.strip() for l in gitignore.read_text(encoding='utf-8').splitlines()]
     return ".swarm/" in lines or ".swarm" in lines
 
 
@@ -2442,7 +2442,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
     """Add or remove .swarm/ from .gitignore. Returns a human-readable action."""
     lines: list[str] = []
     if gitignore.exists():
-        lines = gitignore.read_text().splitlines()
+        lines = gitignore.read_text(encoding='utf-8').splitlines()
 
     entries = {".swarm/", ".swarm"}
     if invisible:
@@ -2451,7 +2451,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
         lines.append("")
         lines.append("# dot_swarm trail — remove to make visible (swarm trail visible)")
         lines.append(".swarm/")
-        gitignore.write_text("\n".join(lines) + "\n")
+        gitignore.write_text("\n".join(lines) + "\n", encoding='utf-8')
         return "trail hidden (.swarm/ added to .gitignore)"
     else:
         new_lines = []
@@ -2473,7 +2473,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
             new_lines.append(line)
         if not removed:
             return "already visible (no .swarm/ entry found)"
-        gitignore.write_text("\n".join(new_lines) + "\n")
+        gitignore.write_text("\n".join(new_lines) + "\n", encoding='utf-8')
         return "trail visible (.swarm/ removed from .gitignore)"
 
 
@@ -3163,7 +3163,7 @@ def session_cmd(ctx: click.Context, interface: str, prompt: str | None) -> None:
     bin_path = shutil.which(interface)
 
     # Session banner
-    state_text  = paths.state.read_text().strip() if paths.state.exists() else ""
+    state_text  = paths.state.read_text(encoding='utf-8').strip() if paths.state.exists() else ""
     focus_line  = next((l for l in state_text.splitlines() if "Current focus" in l), "")
     click.echo(f"  Division : {div_root.name}")
     if focus_line:
@@ -3188,7 +3188,8 @@ def session_cmd(ctx: click.Context, interface: str, prompt: str | None) -> None:
             ctx_file.write_text(
                 f"# dot_swarm Session Context — {div_root.name}\n\n"
                 f"Read this file to understand the current state, then assist the user.\n\n"
-                f"{context}\n"
+                f"{context}\n",
+                encoding='utf-8',
             )
             rel = ctx_file.relative_to(div_root)
             click.echo(f"  Context written to {rel}")
@@ -3333,7 +3334,7 @@ def _install_drift_check_workflow(repo_root: Path) -> None:
         )
         if template_path.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(template_path.read_text())
+            dest.write_text(template_path.read_text(encoding='utf-8'))
             click.echo("  Created .github/workflows/swarm-drift-check.yml")
             return
     except Exception:
@@ -3359,7 +3360,7 @@ def _find_git_root() -> Path | None:
 
 def _create_if_missing(path: Path, content: str) -> None:
     if not path.exists():
-        path.write_text(content)
+        path.write_text(content, encoding='utf-8')
         click.echo(f"  Created {path.name}")
     else:
         click.echo(f"  Skipped {path.name} (already exists)")
@@ -3390,13 +3391,13 @@ def _ensure_gitignore(swarm_dir: Path) -> None:
     gitignore = swarm_dir / ".gitignore"
     needed = [".signing_key", ".swarm_key", ".swarm_key.old", "quarantine/", "trail.log"]
     if gitignore.exists():
-        existing = gitignore.read_text()
+        existing = gitignore.read_text(encoding='utf-8')
         missing = [line for line in needed if line not in existing]
         if missing:
-            with gitignore.open("a") as fh:
+            with gitignore.open("a", encoding='utf-8') as fh:
                 fh.write("\n" + "\n".join(missing) + "\n")
     else:
-        gitignore.write_text("\n".join(needed) + "\n")
+        gitignore.write_text("\n".join(needed) + "\n", encoding='utf-8')
 
 
 def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:

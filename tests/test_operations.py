@@ -38,15 +38,17 @@ def swarm_dir(tmp_path: Path) -> SwarmPaths:
     swarm.mkdir()
 
     (swarm / "queue.md").write_text(
-        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n"
+        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n",
+        encoding='utf-8',
     )
     (swarm / "state.md").write_text(
         "# State\n\n**Last touched**: 2026-01-01T00:00Z by test\n"
-        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n"
+        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n",
+        encoding='utf-8',
     )
-    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n")
-    (swarm / "context.md").write_text("# Context\n\n## What This Division Is\n\nTest.\n")
-    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\nTest bootstrap.\n")
+    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n", encoding='utf-8')
+    (swarm / "context.md").write_text("# Context\n\n## What This Division Is\n\nTest.\n", encoding='utf-8')
+    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\nTest bootstrap.\n", encoding='utf-8')
 
     return SwarmPaths.find(div_root)
 
@@ -175,7 +177,7 @@ def test_write_and_read_state(swarm_dir: SwarmPaths) -> None:
 
 def test_append_memory(swarm_dir: SwarmPaths) -> None:
     append_memory(swarm_dir, "messaging", "Chose NATS over Kafka", "lower latency")
-    content = swarm_dir.memory.read_text()
+    content = swarm_dir.memory.read_text(encoding='utf-8')
     assert "NATS" in content
     assert "Kafka" in content
 
@@ -183,7 +185,7 @@ def test_append_memory(swarm_dir: SwarmPaths) -> None:
 def test_memory_is_append_only(swarm_dir: SwarmPaths) -> None:
     append_memory(swarm_dir, "t1", "First entry", "reason one")
     append_memory(swarm_dir, "t2", "Second entry", "reason two")
-    content = swarm_dir.memory.read_text()
+    content = swarm_dir.memory.read_text(encoding='utf-8')
     assert "First entry" in content
     assert "Second entry" in content
 
@@ -199,9 +201,9 @@ def test_audit_flags_stale_items(swarm_dir: SwarmPaths) -> None:
     item_id = pending[0].id
     claim_item(swarm_dir, item_id, "agent-x")
     # Backdate the queue file's mtime to simulate staleness
-    raw = swarm_dir.queue.read_text()
+    raw = swarm_dir.queue.read_text(encoding='utf-8')
     backdated = raw.replace("2026", "2024")  # crude backdating
-    swarm_dir.queue.write_text(backdated)
+    swarm_dir.queue.write_text(backdated, encoding='utf-8')
     stale = audit(swarm_dir, stale_hours=1)
     assert len(stale) >= 1
 

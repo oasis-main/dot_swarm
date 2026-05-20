@@ -55,7 +55,7 @@ def test_done_supersedes_claims_append_only(swarm_paths):
     assert len(files) == 2
 
     states = sorted(
-        __import__("json").loads(f.read_text())["state"] for f in files
+        __import__("json").loads(f.read_text(encoding='utf-8'))["state"] for f in files
     )
     assert states == ["CLAIMED", "DONE"]
 
