@@ -3,10 +3,18 @@ import json
 from pathlib import Path
 
 try:
-    from dot_swarm_mcp.server import server, _resolve_paths, call_tool, list_tools
+    import mcp  # noqa: F401 — the optional [mcp] extra
     HAS_MCP = True
 except (ImportError, ModuleNotFoundError):
     HAS_MCP = False
+
+# SWC-047: only the OPTIONAL `mcp` SDK import above is allowed to skip these
+# tests — a broken dot_swarm_mcp.server (our own code) must fail loudly, not
+# silently report "SDK not installed" while masking a real bug. This bit us:
+# server.py imported a function that didn't exist, and every MCP test just
+# skipped with a misleading reason instead of failing.
+if HAS_MCP:
+    from dot_swarm_mcp.server import server, _resolve_paths, call_tool, list_tools
 
 from dot_swarm.models import SwarmPaths, WorkItem, ItemState
 from dot_swarm.operations import write_queue

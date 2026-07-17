@@ -826,57 +826,42 @@ def heal(ctx: click.Context, fix: bool, depth: int) -> None:
       swarm heal --fix        # Attempt automatic remediation
       swarm heal --depth 2    # Descend two levels into child divisions
     """
+    from . import ai_ops as _ai_ops
     from . import security as _sec
-    from . import signing as _sign
 
     paths    = _get_paths(ctx.obj["path"])
-    div_root = paths.root.parent
-    div_name = div_root.name
+    div_name = paths.root.parent.name
 
     click.echo(f"\n⟳  Healing {div_name}…\n")
 
+    # SWC-047: heal's actual logic lives in ai_ops.heal() (a pure function)
+    # so the CLI and the MCP `swarm_heal` tool share ONE implementation —
+    # this command just formats the result the way it always has.
+    result = _ai_ops.heal(paths, fix=fix, depth=depth)
+
     # ── 1. Alignment ────────────────────────────────────────────────────────
     click.echo("── Alignment ──────────────────────────────────────────")
-
-    parent_paths = find_parent_paths(paths)
-    if parent_paths:
-        al = get_alignment(paths, parent_paths)
-        label = parent_paths.root.parent.name
-        if al:
-            click.echo(f"  ↑ {len(al)} link(s) → parent: {label}")
+    al = result["alignment"]
+    if al["parent"]:
+        if al["parent_links"]:
+            click.echo(f"  ↑ {al['parent_links']} link(s) → parent: {al['parent']}")
         else:
-            click.echo(f"  ↑ No explicit links to parent ({label})")
+            click.echo(f"  ↑ No explicit links to parent ({al['parent']})")
     else:
         click.echo("  ↑ No parent division found.")
 
-    child_divisions = discover_divisions(div_root, depth=depth)
-    children = [(p, ps) for p, ps in child_divisions if p != div_root]
-    child_links = sum(len(get_alignment(paths, cps)) for _, cps in children)
-    orphan_items: list[str] = []
-    if children:
-        click.echo(f"  ↓ {child_links} link(s) across {len(children)} child division(s)")
-        # Identify local items with no upward or downward link
-        local_active, local_pending, _ = read_queue(paths)
-        linked_ids = set()
-        if parent_paths:
-            for l_item, _ in get_alignment(paths, parent_paths):
-                linked_ids.add(l_item.id)
-        for _, cps in children:
-            for l_item, _ in get_alignment(paths, cps):
-                linked_ids.add(l_item.id)
-        for item in local_active + local_pending:
-            if item.id not in linked_ids:
-                orphan_items.append(item.id)
-        if orphan_items:
-            click.echo(f"  ℹ  {len(orphan_items)} orphaned item(s) (no cross-division links):")
-            for oid in orphan_items[:5]:
+    if al["children"]:
+        click.echo(f"  ↓ {al['child_links']} link(s) across {al['children']} child division(s)")
+        if al["orphan_items"]:
+            click.echo(f"  ℹ  {len(al['orphan_items'])} orphaned item(s) (no cross-division links):")
+            for oid in al["orphan_items"][:5]:
                 click.echo(f"     {oid}")
     else:
         click.echo("  ↓ No child divisions found.")
 
     # ── 2. Queue health ─────────────────────────────────────────────────────
     click.echo("\n── Queue Health ────────────────────────────────────────")
-    queue_findings = audit(paths)
+    queue_findings = result["queue_health"]["findings"]
     if queue_findings:
         for f in queue_findings:
             icon = "⚠️ " if f["severity"] == "WARN" else "🚨"
@@ -884,76 +869,58 @@ def heal(ctx: click.Context, fix: bool, depth: int) -> None:
             click.echo(f"  {icon} {id_str}{f['message']}")
     else:
         click.echo("  ✓ No stale claims or blocked items.")
-    _, pending_q, _ = read_queue(paths)
-    if pending_q:
-        click.echo(f"  ℹ  {len(pending_q)} pending item(s) awaiting pickup.")
+    if result["queue_health"]["pending_count"]:
+        click.echo(f"  ℹ  {result['queue_health']['pending_count']} pending item(s) awaiting pickup.")
 
     # ── 3. Security scan ────────────────────────────────────────────────────
     click.echo("\n── Security Scan ───────────────────────────────────────")
-    swarm_sec  = _sec.scan_swarm_directory(paths)
-    shim_sec   = _sec.scan_platform_shims(div_root)
-    all_sec    = swarm_sec + shim_sec
-    counts     = _sec.severity_counts(all_sec)
-
-    if all_sec:
+    sec = result["security"]
+    counts = sec["counts"]
+    if sec["findings"]:
         click.echo(
             f"  🚨 {counts['CRITICAL']} critical  "
             f"⚠️  {counts['HIGH']} high  "
             f"ℹ️  {counts['MEDIUM']} medium"
         )
-        for line in _sec.format_findings(all_sec):
+        findings_objs = [_sec.SecurityFinding(**f) for f in sec["findings"]]
+        for line in _sec.format_findings(findings_objs):
             click.echo(line)
-
-        if fix:
+        if fix and sec["quarantined"]:
             click.echo("\n  [--fix] Backing up flagged files to .swarm/quarantine/…")
-            _quarantine_findings(paths, div_root, all_sec)
+            for msg in sec["quarantined"]:
+                click.echo(f"     {msg}")
+            click.echo("  ⚠  Flagged files backed up. Review quarantine/ and remove injections manually.")
+            click.echo("     Run 'swarm heal' again after cleaning to confirm resolution.")
     else:
         click.echo("  ✓ No adversarial content detected.")
 
     # ── 4. Pheromone trail integrity ─────────────────────────────────────────
     click.echo("\n── Pheromone Trail Integrity ───────────────────────────")
-    identity = _sign.load_identity(paths.root)
-    tampered: list[dict] = []
-    if not identity:
+    trail = result["trail"]
+    if not trail["has_identity"]:
         click.echo("  ℹ  No signing identity. Run 'swarm init' to enable trail signing.")
+    elif trail["tampered"]:
+        click.echo(f"  🚨 {len(trail['tampered'])} tampered trail entry(ies) detected!")
+        for rec in trail["tampered"][:5]:
+            click.echo(
+                f"     Fingerprint: {rec.get('fingerprint','?')}  "
+                f"Agent: {rec['agent_id']}  Op: {rec['op']}"
+            )
+        for fp in trail["blocked_fingerprints"]:
+            click.echo(f"  🔒 Blocked fingerprint: {fp}")
     else:
-        tampered = _sign.verify_trail(paths.root)
-        trail_len = len(_sign.read_trail(paths.root))
-        if tampered:
-            click.echo(f"  🚨 {len(tampered)} tampered trail entry(ies) detected!")
-            for rec in tampered[:5]:
-                click.echo(
-                    f"     Fingerprint: {rec.get('fingerprint','?')}  "
-                    f"Agent: {rec['agent_id']}  Op: {rec['op']}"
-                )
-            if fix:
-                fps = {r.get("fingerprint", "") for r in tampered
-                       if r.get("fingerprint", "") not in ("unsigned", "")}
-                for fp in fps:
-                    _sign.block_peer(paths.root, fp)
-                    click.echo(f"  🔒 Blocked fingerprint: {fp}")
-        else:
-            click.echo(f"  ✓ Trail verified ({trail_len} entries, all signatures valid).")
+        click.echo(f"  ✓ Trail verified ({trail['length']} entries, all signatures valid).")
 
-    # ── 5. Summary & memory log ──────────────────────────────────────────────
+    # ── 5. Summary ───────────────────────────────────────────────────────────
     click.echo("\n── Summary ─────────────────────────────────────────────")
-    total_issues = len(queue_findings) + len(all_sec) + len(tampered)
-    if total_issues == 0:
+    if result["healthy"]:
         click.echo(f"  ✓ {div_name} is healthy.\n")
     else:
-        click.echo(f"  {total_issues} issue(s) found.")
-        if all_sec and not fix:
+        click.echo(f"  {result['total_issues']} issue(s) found.")
+        if sec["findings"] and not fix:
             click.echo("  Run 'swarm heal --fix' to quarantine adversarial content.\n")
 
-    if all_sec:
-        sources = ", ".join(sorted({f.source for f in all_sec}))
-        summary = (
-            f"heal found {counts['CRITICAL']} critical / {counts['HIGH']} high / "
-            f"{counts['MEDIUM']} medium security issues in: {sources}"
-        )
-        append_memory(paths, topic="heal-security-scan", decision=summary,
-                      why="Automatic heal audit log — findings must not be silently lost",
-                      tradeoff="", agent_id="swarm-heal")
+    if result["memory_logged"]:
         click.echo(f"  Findings logged to memory.md.")
 
     click.echo("")
@@ -3402,47 +3369,6 @@ def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:
         click.echo(result_text)
     except Exception as e:
         click.echo(f"  ⚠  Drift check error: {e}")
-
-
-def _quarantine_findings(
-    paths: "SwarmPaths",
-    div_root: Path,
-    findings: list,
-) -> None:
-    """Back up files with adversarial findings to .swarm/quarantine/ for human review.
-
-    We do NOT auto-delete content — humans must review and excise injections.
-    The backup provides a dated record and preserves the original for forensics.
-    """
-    quarantine_dir = paths.root / "quarantine"
-    quarantine_dir.mkdir(exist_ok=True)
-
-    ts = utcnow().strftime("%Y%m%dT%H%MZ")
-    by_source: dict[str, list] = {}
-    for f in findings:
-        by_source.setdefault(f.source, []).append(f)
-
-    for source, src_findings in by_source.items():
-        if source.startswith("workflows/"):
-            fpath = paths.workflows / source[len("workflows/"):]
-        elif source in ("CLAUDE.md", ".windsurfrules", ".cursorrules",
-                        ".github/copilot-instructions.md"):
-            fpath = div_root / source
-        else:
-            fpath = paths.root / source
-
-        if not fpath.exists():
-            continue
-
-        safe_name = source.replace("/", "_").replace(".", "_")
-        backup = quarantine_dir / f"{ts}_{safe_name}.bak"
-        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"))
-
-        categories = ", ".join(sorted({f.category for f in src_findings}))
-        click.echo(f"     {source} → quarantine/{backup.name}  [{categories}]")
-
-    click.echo("  ⚠  Flagged files backed up. Review quarantine/ and remove injections manually.")
-    click.echo("     Run 'swarm heal' again after cleaning to confirm resolution.")
 
 
 if __name__ == "__main__":

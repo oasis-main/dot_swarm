@@ -44,7 +44,7 @@ from dot_swarm.operations import (
     write_state,
     _division_code_from_paths,
 )
-from dot_swarm.ai_ops import heal
+from dot_swarm.ai_ops import heal as _heal
 
 server = Server("dot-swarm")
 
@@ -286,6 +286,19 @@ async def list_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="swarm_handoff",
+            description=(
+                "Render a handoff summary (current focus, active items, ready-for-pickup "
+                "queue, context pointers) for the next agent picking up this swarm."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
@@ -477,7 +490,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "swarm_heal":
             paths = _resolve_paths(path)
-            findings = heal(paths, fix=arguments.get("fix", False))
+            findings = _heal(paths, fix=arguments.get("fix", False))
             return [types.TextContent(type="text", text=json.dumps(findings, indent=2))]
 
         elif name == "swarm_handoff":

@@ -1,8 +1,8 @@
 # State — dot_swarm
 
-**Last touched**: 2026-04-25T19:55-04:00 by claude-code (Mike)
-**Current focus**: README reorganization landed on `main` (commit `fd1a657`); logo/icon GIFs refreshed from upstream fluid-swarm-sim regeneration.
-**Active items**: (none)
+**Last touched**: 2026-07-17T15:37Z by claude-code
+**Current focus**: Fix broken MCP server — heal ImportError + zero test coverage
+**Active items**: SWC-047
 **Blockers**: PyPI Trusted Publishing not yet configured (manual step for SWC-003)
 **Ready for pickup**: SWC-003, SWC-004, SWC-005, SWC-006, SWC-007, SWC-008, SWC-009, SWC-021, SWC-024, SWC-032, SWC-033, SWC-043, SWC-045
 
