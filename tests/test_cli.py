@@ -281,7 +281,7 @@ def test_comment_reply_threading_via_cli(tmp_path: Path) -> None:
 
     runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "question?", "--agent", "house"])
     import re
-    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text()
+    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text(encoding="utf-8")
     parent_id = re.search(r'"comment_id":"([a-f0-9]+)"', thread_file).group(1)
 
     result = runner.invoke(cli, [
@@ -331,7 +331,7 @@ def test_mail_read_marks_read_and_disappears_from_inbox(tmp_path: Path) -> None:
     import re
     inbox_dir = div / ".swarm" / "mailbox" / "house" / "inbox"
     msg_file = next(inbox_dir.glob("*.json"))
-    msg_id = re.search(r'"msg_id":\s*"([a-f0-9]+)"', msg_file.read_text()).group(1)
+    msg_id = re.search(r'"msg_id":\s*"([a-f0-9]+)"', msg_file.read_text(encoding="utf-8")).group(1)
 
     result = runner.invoke(cli, ["--path", str(div), "mail", "read", "house", msg_id])
     assert result.exit_code == 0

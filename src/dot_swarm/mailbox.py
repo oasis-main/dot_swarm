@@ -153,7 +153,7 @@ def send_message(
     while dest.exists():  # collision under a same-microsecond duplicate send
         suffix += 1
         dest = inbox / f"{sort_key}_{msg_id}_{suffix}.json"
-    dest.write_text(json.dumps(message.to_dict(), indent=2))
+    dest.write_text(json.dumps(message.to_dict(), indent=2), encoding="utf-8")
     return message
 
 
@@ -163,7 +163,7 @@ def _load_dir(d: Path) -> list[tuple[Path, Message]]:
     out = []
     for p in sorted(d.glob("*.json")):
         try:
-            out.append((p, Message.from_dict(json.loads(p.read_text()))))
+            out.append((p, Message.from_dict(json.loads(p.read_text(encoding="utf-8")))))
         except (json.JSONDecodeError, KeyError, OSError):
             continue
     return out

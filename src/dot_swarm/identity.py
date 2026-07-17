@@ -149,7 +149,7 @@ def generate_agent_identity(agent_id: str, key_dir: Path | None = None) -> Agent
 
     if key_path.exists():
         private_key = Ed25519PrivateKey.from_private_bytes(
-            bytes.fromhex(key_path.read_text().strip())
+            bytes.fromhex(key_path.read_text(encoding="utf-8").strip())
         )
     else:
         private_key = Ed25519PrivateKey.generate()
@@ -158,7 +158,7 @@ def generate_agent_identity(agent_id: str, key_dir: Path | None = None) -> Agent
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        key_path.write_text(raw.hex())
+        key_path.write_text(raw.hex(), encoding="utf-8")
         _harden_private_key_file(key_path)
 
     public_bytes = private_key.public_key().public_bytes(
@@ -175,7 +175,7 @@ def _load_private_key(agent_id: str, key_dir: Path | None = None):
     key_path = _key_path(agent_id, key_dir)
     if not key_path.exists():
         return None
-    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(key_path.read_text().strip()))
+    return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(key_path.read_text(encoding="utf-8").strip()))
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ def register_agent(swarm_path: Path, identity: AgentIdentity) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     dest = d / f"{identity.agent_id}.json"
     if dest.exists():
-        existing = json.loads(dest.read_text())
+        existing = json.loads(dest.read_text(encoding="utf-8"))
         if existing.get("public_key") != identity.public_key:
             raise ValueError(
                 f"agent '{identity.agent_id}' is already registered with a "
@@ -207,7 +207,7 @@ def register_agent(swarm_path: Path, identity: AgentIdentity) -> Path:
                 f"Remove {dest} first if this is an intentional key rotation."
             )
         return dest
-    dest.write_text(json.dumps(identity.to_dict(), indent=2))
+    dest.write_text(json.dumps(identity.to_dict(), indent=2), encoding="utf-8")
     return dest
 
 
@@ -216,7 +216,7 @@ def load_registered_agent(swarm_path: Path, agent_id: str) -> AgentIdentity | No
     if not p.exists():
         return None
     try:
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
     return AgentIdentity(
@@ -235,7 +235,7 @@ def list_registered_agents(swarm_path: Path) -> list[AgentIdentity]:
     out = []
     for f in sorted(d.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
         out.append(AgentIdentity(
