@@ -204,7 +204,7 @@ def test_doorman_blocks_policy_disabled_intent(
     peer = trust_peer(swarm_a, peer_identity_file, scopes=list(ALL_INTENTS))
     # Disable work_request in policy.md
     policy = swarm_a / POLICY_FILE
-    policy.write_text(policy.read_text(encoding='utf-8') + "\ndisabled: work_request\n")
+    policy.write_text(policy.read_text(encoding='utf-8') + "\ndisabled: work_request\n", encoding='utf-8')
     allowed, reason = doorman_check(swarm_a, peer.fingerprint, INTENT_WORK_REQUEST)
     assert allowed is False
     assert "policy" in reason

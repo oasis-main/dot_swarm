@@ -443,7 +443,7 @@ def _quarantine_findings(paths: SwarmPaths, div_root: Path, findings: list) -> l
 
         safe_name = source.replace("/", "_").replace(".", "_")
         backup = quarantine_dir / f"{ts}_{safe_name}.bak"
-        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"))
+        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
 
         categories = ", ".join(sorted({f.category for f in src_findings}))
         messages.append(f"{source} -> quarantine/{backup.name}  [{categories}]")

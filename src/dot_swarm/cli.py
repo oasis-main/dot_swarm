@@ -3526,7 +3526,7 @@ def _install_drift_check_workflow(repo_root: Path) -> None:
         )
         if template_path.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(template_path.read_text(encoding='utf-8'))
+            dest.write_text(template_path.read_text(encoding='utf-8'), encoding='utf-8')
             click.echo("  Created .github/workflows/swarm-drift-check.yml")
             return
     except Exception:
