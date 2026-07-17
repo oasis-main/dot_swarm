@@ -85,11 +85,6 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
       priority: high | project: misc
       notes: Remove Python 3.10 (unsupported), add anyio to tests, fix MCP test collection, fix Windows compatibility, and fix state consistency.
 
-- [ ] [SWC-051] [OPEN] Comments — threaded discussion on a work item, signed
-      priority: high | project: misc
-      notes: No structured comment/discussion mechanism exists today — coordination
-      depends: SWC-048
-
 - [ ] [SWC-052] [OPEN] Mailbox — direct agent-to-agent messaging within one swarm
       priority: high | project: misc
       notes: federation.py's inbox/outbox is for CROSS-swarm (cross-repo) exchange
@@ -213,3 +208,8 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
 - [x] [SWC-050] [DONE · 2026-07-17T18:12Z] Atomic claim() — close the TOCTOU window
       priority: high | project: misc
       notes: claim_item() (operations.py:408) does read_queue() -> check state -> | claim_item()'s read-decide-write sequence now runs under a per-item advisory lock (.swarm/claims/.lock-<item-id>, os.open O_CREAT|O_EXCL) closing the TOCTOU window where concurrent claimants could all observe OPEN and all be told they won uncontested. Stale-lock reclaim (30s) guards against a crashed holder; ClaimLockTimeout after 5s default otherwise. Scoped per item_id so unrelated claims never contend. resolve_claims()/COMPETING kept as defense-in-depth for --compete races and non-locking writers. 5 new tests incl. an 8-thread real race proving exactly one winner. 258 passing (was 253).
+
+- [x] [SWC-051] [DONE · 2026-07-17T18:18Z] Comments — threaded discussion on a work item, signed
+      priority: high | project: misc
+      notes: No structured comment/discussion mechanism exists today — coordination | New comments.py: .swarm/comments/<item-id>.jsonl, one JSON object per line (mirrors claims/ append-only pattern). Content-addressed comment_id (sha256 of item+agent+ts+body, first 12 hex) so concurrent commenters never race for an ID the way a counter would. Ed25519-signed via identity.py (SWC-048) when the agent has a local key; UNSIGNED sentinel otherwise, matching existing convention. Out-of-order replies (reply_to referencing an unseen comment_id) are recorded, not rejected -- CLI flags them as orphaned. CLI: swarm comment <id> <body> [--reply-to] [--agent], swarm comments <id> [--verify]. MCP: swarm_comment/swarm_comments, wired through SWC-049's _effective_agent_id override. .gitignore: comments/ un-ignored (durable shared discussion, like queue.md/agents/) -- unlike mailbox/ (SWC-052, ephemeral, stays under the blanket .swarm/* ignore). 17 new tests (12 unit incl. the compromised-agent-cannot-forge-as-a-peer property, 2 MCP, 3 CLI). 275 passing (was 258).
+      depends: SWC-048

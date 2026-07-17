@@ -188,3 +188,32 @@ async def test_mcp_inspector_id_also_overridden_when_bound(swarm_paths, monkeypa
 
     done = json.loads((await call_tool("swarm_queue", {"section": "done", "path": "."}))[0].text)
     assert done[0]["id"] == item_id
+
+
+# ---------------------------------------------------------------------------
+# SWC-051: comments over MCP
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")
+@pytest.mark.anyio
+async def test_mcp_comment_and_comments(swarm_paths, monkeypatch):
+    monkeypatch.setenv("SWARM_ROOT", str(swarm_paths.root.parent))
+    monkeypatch.delenv("DOT_SWARM_AGENT_ID", raising=False)
+
+    await call_tool("swarm_comment", {"id": "SWC-001", "body": "first note", "agent_id": "house", "path": "."})
+    result = await call_tool("swarm_comments", {"id": "SWC-001", "path": "."})
+    thread = json.loads(result[0].text)
+    assert len(thread) == 1
+    assert thread[0]["body"] == "first note"
+    assert thread[0]["agent_id"] == "house"
+
+
+@pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")
+@pytest.mark.anyio
+async def test_mcp_comment_agent_id_overridden_when_bound(swarm_paths, monkeypatch):
+    monkeypatch.setenv("SWARM_ROOT", str(swarm_paths.root.parent))
+    monkeypatch.setenv("DOT_SWARM_AGENT_ID", "kolmogorov")
+
+    await call_tool("swarm_comment", {"id": "SWC-001", "body": "hi", "agent_id": "someone-else", "path": "."})
+    thread = json.loads((await call_tool("swarm_comments", {"id": "SWC-001", "path": "."}))[0].text)
+    assert thread[0]["agent_id"] == "kolmogorov"

@@ -74,6 +74,7 @@ from dot_swarm.operations import (
 from dot_swarm.ai_ops import heal as _heal
 from dot_swarm import identity as _identity
 from dot_swarm import signing as _sign
+from dot_swarm import comments as _comments
 
 server = Server("dot-swarm")
 
@@ -354,6 +355,36 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="swarm_comment",
+            description=(
+                "Add a signed comment to a work item's discussion thread "
+                "(SWC-051). Set reply_to to a comment_id to thread a reply."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["id", "body"],
+                "properties": {
+                    "id": {"type": "string", "description": "Item ID e.g. ORG-002"},
+                    "body": {"type": "string"},
+                    "reply_to": {"type": "string", "description": "comment_id this replies to"},
+                    "agent_id": {"type": "string", "description": "Your agent ID (ignored if this process has a bound identity — see SWC-049)"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_comments",
+            description="Read a work item's discussion thread in chronological order.",
+            inputSchema={
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
             name="swarm_heal",
             description="Run a full security scan, alignment check, and trail verification.",
             inputSchema={
@@ -579,6 +610,22 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 if exhausted:
                     msg += " (Max retries exhausted, item BLOCKED)"
                 return [types.TextContent(type="text", text=msg)]
+
+        elif name == "swarm_comment":
+            paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments) or "unknown"
+            c = _comments.add_comment(
+                paths, arguments["id"], agent_id, arguments["body"],
+                in_reply_to=arguments.get("reply_to", ""),
+            )
+            _audit_write(paths, "comment", agent_id, {"item_id": arguments["id"], "comment_id": c.comment_id})
+            return [types.TextContent(type="text", text=f"Comment {c.comment_id} on [{arguments['id']}] by {agent_id}")]
+
+        elif name == "swarm_comments":
+            paths = _resolve_paths(path)
+            thread = _comments.read_comments(paths, arguments["id"])
+            result = [c.to_dict() for c in thread]
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
         elif name == "swarm_heal":
             paths = _resolve_paths(path)

@@ -37,3 +37,15 @@ frames/
 # all (see identity.py), so there's nothing to accidentally commit here.
 !.swarm/agents/
 !.swarm/agents/*.json
+
+# SWC-051: comment threads are durable, shared discussion — the same kind of
+# git-tracked surface as queue.md/memory.md, not an ephemeral operational
+# log like claims/ or trail.log. Un-ignored the same way agents/ is above.
+!.swarm/comments/
+!.swarm/comments/*.jsonl
+
+# SWC-052: mailbox is the opposite of comments/ — per-agent, ephemeral,
+# consumed-then-gone operational messaging transported over the shared
+# filesystem volume (see federation.py's docstring for the cross-repo
+# equivalent). Deliberately left under the blanket .swarm/* ignore above —
+# no negation here.

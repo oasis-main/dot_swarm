@@ -2837,6 +2837,60 @@ def agent_show(ctx: click.Context, agent_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# swarm comment — threaded, signed discussion on a work item (SWC-051)
+# ---------------------------------------------------------------------------
+
+@cli.command(name="comment")
+@click.argument("item_id")
+@click.argument("body")
+@click.option("--reply-to", "reply_to", default="", help="comment_id this replies to")
+@click.option("--agent", default=None, help="Agent ID override")
+@click.pass_context
+def comment_cmd(ctx: click.Context, item_id: str, body: str, reply_to: str, agent: str | None) -> None:
+    """Add a comment to ITEM_ID's discussion thread.
+
+    Signed with the commenting agent's Ed25519 key (see 'swarm agent init')
+    when one is registered locally; recorded unsigned otherwise.
+    """
+    from . import comments as _comments
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    agent_id = agent or _default_agent()
+    c = _comments.add_comment(paths, item_id, agent_id, body, in_reply_to=reply_to)
+    signed_note = "" if c.signature == _identity.UNSIGNED else "  [signed]"
+    click.echo(f"✓ Comment {c.comment_id} on [{item_id}] by {agent_id}{signed_note}")
+
+
+@cli.command(name="comments")
+@click.argument("item_id")
+@click.option("--verify", is_flag=True, help="Show signature verification status per comment")
+@click.pass_context
+def comments_cmd(ctx: click.Context, item_id: str, verify: bool) -> None:
+    """Show ITEM_ID's discussion thread in chronological order."""
+    from . import comments as _comments
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    thread = _comments.read_comments(paths, item_id)
+    if not thread:
+        click.echo(f"No comments on [{item_id}].")
+        return
+    known_ids = {c.comment_id for c in thread}
+    for c in thread:
+        reply = ""
+        if c.in_reply_to:
+            reply = f"  (reply to {c.in_reply_to}{'' if c.in_reply_to in known_ids else ', orphaned'})"
+        status = ""
+        if verify:
+            if c.signature == _identity.UNSIGNED:
+                status = "  [unsigned]"
+            else:
+                ok = _comments.verify_comment(paths, c)
+                status = "  [✓ verified]" if ok else "  [✗ signature does not verify]"
+        click.echo(f"[{c.comment_id}] {c.agent_id} @ {c.timestamp}{reply}{status}")
+        click.echo(f"    {c.body}")
+
+
+# ---------------------------------------------------------------------------
 # swarm configure
 # ---------------------------------------------------------------------------
 

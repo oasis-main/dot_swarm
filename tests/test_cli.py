@@ -163,3 +163,48 @@ def test_handoff_produces_output(tmp_path: Path) -> None:
     result = runner.invoke(cli, ["--path", str(div), "handoff"])
     assert result.exit_code == 0
     assert len(result.output) > 20
+
+
+# ---------------------------------------------------------------------------
+# swarm comment / comments (SWC-051)
+# ---------------------------------------------------------------------------
+
+def test_comment_and_comments_round_trip(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "looks good", "--agent", "house"])
+    assert result.exit_code == 0
+    assert "Comment" in result.output
+
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-001"])
+    assert result.exit_code == 0
+    assert "looks good" in result.output
+    assert "house" in result.output
+
+
+def test_comments_empty_thread(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-404"])
+    assert result.exit_code == 0
+    assert "No comments" in result.output
+
+
+def test_comment_reply_threading_via_cli(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "question?", "--agent", "house"])
+    import re
+    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text()
+    parent_id = re.search(r'"comment_id":"([a-f0-9]+)"', thread_file).group(1)
+
+    result = runner.invoke(cli, [
+        "--path", str(div), "comment", "SWC-001", "answer.",
+        "--agent", "kolmogorov", "--reply-to", parent_id,
+    ])
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-001"])
+    assert f"reply to {parent_id}" in result.output
