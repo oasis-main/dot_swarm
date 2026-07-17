@@ -9,11 +9,6 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
 
 ## Pending
 
-- [ ] [SWC-049] [OPEN] MCP server authentication — bind identity to the process, not the call
-      priority: critical | project: misc
-      notes: call_tool() currently trusts whatever `agent_id` string the CALLER
-      depends: SWC-048
-
 - [ ] [SWC-013] [OPEN] Phase 2: schedules.md + workflow composition (cron-based)
       priority: high | project: misc
       notes: scheduler.py: Schedule dataclass, add_schedule(), is_due(), _cron_is_due() (stdlib, no croniter),
@@ -213,3 +208,8 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
       priority: critical | project: misc
       notes: Current signing.py is HMAC-SHA256 with ONE SHARED KEY PER SWARM | New identity.py: per-agent Ed25519 keypairs (private key never in .swarm/, default ~/.dot_swarm/keys/<agent>.key, DOT_SWARM_AGENT_KEY_DIR override). Public-key registry at .swarm/agents/<id>.json, refuses silent key-swap. sign_agent/verify_agent using the registry, never a caller-supplied key. CLI: swarm agent init/list/show. Fixed a real .gitignore bug found while dogfooding: blanket '.swarm/' silently defeats any negation for a subpath (git can't re-include inside an excluded parent) -- changed to '.swarm/*' + explicit un-ignore for .swarm/agents/. 15 new tests incl. the core property: a compromised agent's key cannot forge a peer's signature. 249 tests pass (was 234).
       depends: SWC-047
+
+- [x] [SWC-049] [DONE · 2026-07-17T18:09Z] MCP server authentication — bind identity to the process, not the call
+      priority: critical | project: misc
+      notes: call_tool() currently trusts whatever `agent_id` string the CALLER | MCP write tools (claim/done/add/append_memory/partial/block/inspect) now resolve agent_id from a process-bound DOT_SWARM_AGENT_ID env var when set, overriding any caller-supplied value -- closes the 'caller can just say it is a different agent' gap. Bound identity + local Ed25519 key (SWC-048) additionally signs each write into trail.log via a new agent_signature field (additive, existing trail.log readers unaffected). Unset env var = unchanged pre-SWC-049 behavior. 4 new tests, 253 passing (was 249).
+      depends: SWC-048
