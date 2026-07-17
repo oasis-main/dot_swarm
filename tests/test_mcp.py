@@ -217,3 +217,55 @@ async def test_mcp_comment_agent_id_overridden_when_bound(swarm_paths, monkeypat
     await call_tool("swarm_comment", {"id": "SWC-001", "body": "hi", "agent_id": "someone-else", "path": "."})
     thread = json.loads((await call_tool("swarm_comments", {"id": "SWC-001", "path": "."}))[0].text)
     assert thread[0]["agent_id"] == "kolmogorov"
+
+
+# ---------------------------------------------------------------------------
+# SWC-052: mailbox over MCP
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")
+@pytest.mark.anyio
+async def test_mcp_mail_send_and_inbox(swarm_paths, monkeypatch):
+    monkeypatch.setenv("SWARM_ROOT", str(swarm_paths.root.parent))
+    monkeypatch.delenv("DOT_SWARM_AGENT_ID", raising=False)
+
+    await call_tool("swarm_mail_send", {
+        "to": "house", "subject": "fetch this", "body": "GET https://example.com",
+        "agent_id": "yesman", "path": ".",
+    })
+    inbox = json.loads((await call_tool("swarm_mail_inbox", {"agent_id": "house", "path": "."}))[0].text)
+    assert len(inbox) == 1
+    assert inbox[0]["from"] == "yesman"
+    assert inbox[0]["subject"] == "fetch this"
+
+
+@pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")
+@pytest.mark.anyio
+async def test_mcp_mail_sender_overridden_when_bound(swarm_paths, monkeypatch):
+    monkeypatch.setenv("SWARM_ROOT", str(swarm_paths.root.parent))
+    monkeypatch.setenv("DOT_SWARM_AGENT_ID", "vanhelsing")
+
+    await call_tool("swarm_mail_send", {
+        "to": "house", "subject": "s", "body": "b", "agent_id": "yesman", "path": ".",
+    })
+    inbox = json.loads((await call_tool("swarm_mail_inbox", {"agent_id": "house", "path": "."}))[0].text)
+    assert inbox[0]["from"] == "vanhelsing"
+    assert inbox[0]["from"] != "yesman"
+
+
+@pytest.mark.skipif(not HAS_MCP, reason="mcp SDK not installed")
+@pytest.mark.anyio
+async def test_mcp_mail_read_marks_read(swarm_paths, monkeypatch):
+    monkeypatch.setenv("SWARM_ROOT", str(swarm_paths.root.parent))
+    monkeypatch.delenv("DOT_SWARM_AGENT_ID", raising=False)
+
+    await call_tool("swarm_mail_send", {"to": "house", "subject": "s", "body": "b", "agent_id": "yesman", "path": "."})
+    inbox = json.loads((await call_tool("swarm_mail_inbox", {"agent_id": "house", "path": "."}))[0].text)
+    msg_id = inbox[0]["msg_id"]
+
+    result = await call_tool("swarm_mail_read", {"agent_id": "house", "msg_id": msg_id, "path": "."})
+    read = json.loads(result[0].text)
+    assert read["body"] == "b"
+
+    inbox_after = json.loads((await call_tool("swarm_mail_inbox", {"agent_id": "house", "path": "."}))[0].text)
+    assert inbox_after == []

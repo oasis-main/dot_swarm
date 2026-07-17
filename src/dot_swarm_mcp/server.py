@@ -75,6 +75,7 @@ from dot_swarm.ai_ops import heal as _heal
 from dot_swarm import identity as _identity
 from dot_swarm import signing as _sign
 from dot_swarm import comments as _comments
+from dot_swarm import mailbox as _mailbox
 
 server = Server("dot-swarm")
 
@@ -385,6 +386,53 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="swarm_mail_send",
+            description=(
+                "Send a direct message to another agent's inbox WITHIN this "
+                "swarm (SWC-052) — e.g. to delegate a fetch to a peer with "
+                "different egress. Distinct from swarm_add/comment; not "
+                "cross-repo (see federation for that)."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient agent ID"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "reply_to": {"type": "string", "description": "msg_id this replies to"},
+                    "agent_id": {"type": "string", "description": "Sending agent ID (ignored if this process has a bound identity — see SWC-049)"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_mail_inbox",
+            description="List an agent's inbox (unread only, unless include_read).",
+            inputSchema={
+                "type": "object",
+                "required": ["agent_id"],
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "include_read": {"type": "boolean", "default": False},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_mail_read",
+            description="Read one message by msg_id from an agent's inbox; marks it read.",
+            inputSchema={
+                "type": "object",
+                "required": ["agent_id", "msg_id"],
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "msg_id": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
             name="swarm_heal",
             description="Run a full security scan, alignment check, and trail verification.",
             inputSchema={
@@ -626,6 +674,31 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             thread = _comments.read_comments(paths, arguments["id"])
             result = [c.to_dict() for c in thread]
             return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "swarm_mail_send":
+            paths = _resolve_paths(path)
+            from_agent = _effective_agent_id(arguments) or "unknown"
+            m = _mailbox.send_message(
+                paths, from_agent, arguments["to"], arguments["subject"], arguments["body"],
+                in_reply_to=arguments.get("reply_to", ""),
+            )
+            _audit_write(paths, "mail_send", from_agent, {"to": arguments["to"], "msg_id": m.msg_id})
+            return [types.TextContent(type="text", text=f"Sent {m.msg_id} to {arguments['to']} from {from_agent}")]
+
+        elif name == "swarm_mail_inbox":
+            paths = _resolve_paths(path)
+            messages = _mailbox.list_inbox(
+                paths, arguments["agent_id"], include_read=arguments.get("include_read", False)
+            )
+            result = [m.to_dict() for m in messages]
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "swarm_mail_read":
+            paths = _resolve_paths(path)
+            m = _mailbox.read_message(paths, arguments["agent_id"], arguments["msg_id"])
+            if m is None:
+                return [types.TextContent(type="text", text=f"No unread message '{arguments['msg_id']}' for '{arguments['agent_id']}'.")]
+            return [types.TextContent(type="text", text=json.dumps(m.to_dict(), indent=2))]
 
         elif name == "swarm_heal":
             paths = _resolve_paths(path)

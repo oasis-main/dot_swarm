@@ -1,8 +1,8 @@
 # State — dot_swarm
 
-**Last touched**: 2026-07-17T18:18Z by claude-code
-**Current focus**: Comments — threaded discussion on a work item, signed
-**Active items**: SWC-051
+**Last touched**: 2026-07-17T18:23Z by claude-code
+**Current focus**: Mailbox — direct agent-to-agent messaging within one swarm
+**Active items**: SWC-052
 **Blockers**: PyPI Trusted Publishing not yet configured (manual step for SWC-003)
 **Ready for pickup**: SWC-003, SWC-004, SWC-005, SWC-006, SWC-007, SWC-008, SWC-009, SWC-021, SWC-024, SWC-032, SWC-033, SWC-043, SWC-045
 

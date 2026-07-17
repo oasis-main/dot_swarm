@@ -2891,6 +2891,89 @@ def comments_cmd(ctx: click.Context, item_id: str, verify: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# swarm mail — direct agent-to-agent messaging within one swarm (SWC-052)
+# ---------------------------------------------------------------------------
+
+@cli.group(name="mail")
+@click.pass_context
+def mail_group(ctx: click.Context) -> None:
+    """Direct agent-to-agent messaging within THIS swarm.
+
+    Distinct from 'swarm federation' (cross-swarm/cross-repo, HMAC-signed,
+    git-transported). Mail is for agents sharing this .swarm/ directory —
+    e.g. an agent with no direct internet egress delegating a fetch to a
+    peer that has it. Messages are Ed25519-signed (see 'swarm agent init')
+    when the sender has a local key; verify with --verify on read/inbox.
+
+    \b
+    swarm mail send <to> <subject> <body>   deliver into <to>'s inbox
+    swarm mail inbox <agent>                list unread (add --all for read too)
+    swarm mail read <agent> <msg_id>        read one message, marks it read
+    """
+
+
+@mail_group.command(name="send")
+@click.argument("to_agent")
+@click.argument("subject")
+@click.argument("body")
+@click.option("--reply-to", "reply_to", default="", help="msg_id this replies to")
+@click.option("--agent", default=None, help="Sending agent ID override")
+@click.pass_context
+def mail_send(ctx: click.Context, to_agent: str, subject: str, body: str,
+               reply_to: str, agent: str | None) -> None:
+    """Send a message to TO_AGENT's inbox."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    from_agent = agent or _default_agent()
+    m = _mailbox.send_message(paths, from_agent, to_agent, subject, body, in_reply_to=reply_to)
+    click.echo(f"✓ Sent {m.msg_id} to {to_agent} from {from_agent}")
+
+
+@mail_group.command(name="inbox")
+@click.argument("agent_id")
+@click.option("--all", "include_read", is_flag=True, help="Include already-read messages")
+@click.option("--verify", is_flag=True, help="Show signature verification status per message")
+@click.pass_context
+def mail_inbox(ctx: click.Context, agent_id: str, include_read: bool, verify: bool) -> None:
+    """List AGENT_ID's inbox (unread only, unless --all)."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    messages = _mailbox.list_inbox(paths, agent_id, include_read=include_read)
+    if not messages:
+        click.echo(f"No mail for '{agent_id}'.")
+        return
+    for m in messages:
+        status = ""
+        if verify:
+            status = "  [✓ verified]" if _mailbox.verify_message(paths, m) else "  [✗ unverified]"
+        click.echo(f"[{m.msg_id}] from {m.from_agent} @ {m.timestamp}: {m.subject}{status}")
+
+
+@mail_group.command(name="read")
+@click.argument("agent_id")
+@click.argument("msg_id")
+@click.option("--verify", is_flag=True, help="Verify the sender's signature before showing the body")
+@click.pass_context
+def mail_read(ctx: click.Context, agent_id: str, msg_id: str, verify: bool) -> None:
+    """Read one message from AGENT_ID's inbox and mark it read."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    m = _mailbox.read_message(paths, agent_id, msg_id)
+    if m is None:
+        click.echo(f"No unread message '{msg_id}' for '{agent_id}'.", err=True)
+        sys.exit(1)
+    if verify:
+        ok = _mailbox.verify_message(paths, m)
+        click.echo(f"[{'✓ verified' if ok else '✗ NOT verified — treat sender as unconfirmed'}]")
+    click.echo(f"From:    {m.from_agent}")
+    click.echo(f"Subject: {m.subject}")
+    click.echo(f"At:      {m.timestamp}")
+    if m.in_reply_to:
+        click.echo(f"Reply to: {m.in_reply_to}")
+    click.echo(f"\n{m.body}")
+
+
+# ---------------------------------------------------------------------------
 # swarm configure
 # ---------------------------------------------------------------------------
 

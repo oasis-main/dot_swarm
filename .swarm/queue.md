@@ -85,11 +85,6 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
       priority: high | project: misc
       notes: Remove Python 3.10 (unsupported), add anyio to tests, fix MCP test collection, fix Windows compatibility, and fix state consistency.
 
-- [ ] [SWC-052] [OPEN] Mailbox — direct agent-to-agent messaging within one swarm
-      priority: high | project: misc
-      notes: federation.py's inbox/outbox is for CROSS-swarm (cross-repo) exchange
-      depends: SWC-048
-
 - [ ] [SWC-014] [OPEN] Phase 3: OGP-lite federation layer
       priority: medium | project: misc
       notes: federation.py implemented: trust_peer(), doorman_check() (3-layer),
@@ -212,4 +207,9 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
 - [x] [SWC-051] [DONE · 2026-07-17T18:18Z] Comments — threaded discussion on a work item, signed
       priority: high | project: misc
       notes: No structured comment/discussion mechanism exists today — coordination | New comments.py: .swarm/comments/<item-id>.jsonl, one JSON object per line (mirrors claims/ append-only pattern). Content-addressed comment_id (sha256 of item+agent+ts+body, first 12 hex) so concurrent commenters never race for an ID the way a counter would. Ed25519-signed via identity.py (SWC-048) when the agent has a local key; UNSIGNED sentinel otherwise, matching existing convention. Out-of-order replies (reply_to referencing an unseen comment_id) are recorded, not rejected -- CLI flags them as orphaned. CLI: swarm comment <id> <body> [--reply-to] [--agent], swarm comments <id> [--verify]. MCP: swarm_comment/swarm_comments, wired through SWC-049's _effective_agent_id override. .gitignore: comments/ un-ignored (durable shared discussion, like queue.md/agents/) -- unlike mailbox/ (SWC-052, ephemeral, stays under the blanket .swarm/* ignore). 17 new tests (12 unit incl. the compromised-agent-cannot-forge-as-a-peer property, 2 MCP, 3 CLI). 275 passing (was 258).
+      depends: SWC-048
+
+- [x] [SWC-052] [DONE · 2026-07-17T18:23Z] Mailbox — direct agent-to-agent messaging within one swarm
+      priority: high | project: misc
+      notes: federation.py's inbox/outbox is for CROSS-swarm (cross-repo) exchange | New mailbox.py: .swarm/mailbox/<agent-id>/{inbox,read}/<microsecond-ts>_<msg-id>.json -- one file per message (not JSONL like comments/, since 'mark as read' needs a cheap single-file move, not a log rewrite). This is the mechanism that makes Yes Man's 'delegate to a peer with different egress' design real instead of persona prose. Ed25519-signed (SWC-048) when sender has a local key; UNSIGNED sentinel otherwise. Explicitly distinct from federation.py (cross-swarm/cross-repo, HMAC, git-transported) -- mail is within one swarm, over the shared mailbox volume. CLI: swarm mail send/inbox/read. MCP: swarm_mail_send/inbox/read, sender wired through SWC-049's _effective_agent_id override. .gitignore: mailbox/ deliberately left under the blanket .swarm/* ignore (ephemeral, consumed-then-gone -- contrast with SWC-051's comments/, which is committed). 19 new tests (13 unit incl. the compromised-agent-cannot-forge-a-delegation-as-a-trusted-peer property, 3 MCP, 3 CLI). 294 passing (was 275). This closes the SWC-047..052 epic: MCP server was broken end to end (047), swarm-wide HMAC was the wrong primitive for a fleet where individual agents can be compromised (048's Ed25519 fix), the MCP layer trusted caller-supplied identity (049's process-binding fix), claim() had a real TOCTOU race (050's lock), and there was no structured way for agents to discuss work (051) or talk to each other directly (052).
       depends: SWC-048
