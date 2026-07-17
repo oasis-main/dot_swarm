@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import Priority, SwarmPaths
+from .models import Priority, SwarmPaths, utcnow
 from .operations import (
-    add_item, append_memory, block_item, claim_item, done_item,
+    add_item, append_memory, audit, block_item, claim_item, done_item,
+    discover_divisions, find_parent_paths, get_alignment,
     partial_item, read_queue, read_state, write_state,
     _division_code_from_paths, _now_ts,
 )
@@ -403,3 +404,163 @@ def _exec_update_context(paths: SwarmPaths, section: str, content: str) -> None:
     tmp = paths.context.with_suffix(".md.tmp")
     tmp.write_text(new_text)
     tmp.replace(paths.context)
+
+
+# ---------------------------------------------------------------------------
+# heal — full health pass (alignment, queue health, security scan, trail
+# integrity), extracted from the CLI so both `swarm heal` and the MCP
+# `swarm_heal` tool share ONE implementation (SWC-047 — the MCP server
+# previously imported `heal` from here and it never existed, so the whole
+# server failed to start).
+# ---------------------------------------------------------------------------
+
+def _quarantine_findings(paths: SwarmPaths, div_root: Path, findings: list) -> list[str]:
+    """Back up files with adversarial findings to .swarm/quarantine/ for human
+    review. We do NOT auto-delete content — humans must review and excise
+    injections. Returns human-readable messages describing what was quarantined
+    (formerly `click.echo`'d directly from cli.py; now returned so both the CLI
+    and the MCP tool can report it their own way).
+    """
+    quarantine_dir = paths.root / "quarantine"
+    quarantine_dir.mkdir(exist_ok=True)
+
+    ts = utcnow().strftime("%Y%m%dT%H%MZ")  # filename-safe, no ':' (Windows compat)
+    by_source: dict[str, list] = {}
+    for f in findings:
+        by_source.setdefault(f.source, []).append(f)
+
+    messages: list[str] = []
+    for source, src_findings in by_source.items():
+        if source.startswith("workflows/"):
+            fpath = paths.workflows / source[len("workflows/"):]
+        elif source in ("CLAUDE.md", ".windsurfrules", ".cursorrules",
+                        ".github/copilot-instructions.md"):
+            fpath = div_root / source
+        else:
+            fpath = paths.root / source
+        if not fpath.exists():
+            continue
+
+        safe_name = source.replace("/", "_").replace(".", "_")
+        backup = quarantine_dir / f"{ts}_{safe_name}.bak"
+        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"))
+
+        categories = ", ".join(sorted({f.category for f in src_findings}))
+        messages.append(f"{source} -> quarantine/{backup.name}  [{categories}]")
+
+    return messages
+
+
+def heal(paths: SwarmPaths, *, fix: bool = False, depth: int = 1) -> dict:
+    """Full health pass: alignment, queue health, security scan, and pheromone
+    trail integrity. Pure function — returns structured findings, no I/O side
+    effects beyond memory.md logging and (with fix=True) quarantine/block_peer.
+    Callers that want human-readable output (the CLI) format this themselves;
+    callers that want JSON (the MCP tool) can return it as-is.
+    """
+    from . import security as _sec
+    from . import signing as _sign
+
+    div_root = paths.root.parent
+    div_name = div_root.name
+
+    result: dict = {"division": div_name, "fix": fix}
+
+    # ── 1. Alignment ─────────────────────────────────────────────────────
+    parent_paths = find_parent_paths(paths)
+    alignment: dict = {}
+    if parent_paths:
+        al = get_alignment(paths, parent_paths)
+        alignment["parent"] = parent_paths.root.parent.name
+        alignment["parent_links"] = len(al)
+    else:
+        alignment["parent"] = None
+        alignment["parent_links"] = 0
+
+    child_divisions = discover_divisions(div_root, depth=depth)
+    children = [(p, ps) for p, ps in child_divisions if p != div_root]
+    child_links = sum(len(get_alignment(paths, cps)) for _, cps in children)
+    orphan_items: list[str] = []
+    if children:
+        local_active, local_pending, _ = read_queue(paths)
+        linked_ids = set()
+        if parent_paths:
+            for l_item, _ in get_alignment(paths, parent_paths):
+                linked_ids.add(l_item.id)
+        for _, cps in children:
+            for l_item, _ in get_alignment(paths, cps):
+                linked_ids.add(l_item.id)
+        for item in local_active + local_pending:
+            if item.id not in linked_ids:
+                orphan_items.append(item.id)
+    alignment["children"] = len(children)
+    alignment["child_links"] = child_links
+    alignment["orphan_items"] = orphan_items
+    result["alignment"] = alignment
+
+    # ── 2. Queue health ──────────────────────────────────────────────────
+    queue_findings = audit(paths)
+    _, pending_q, _ = read_queue(paths)
+    result["queue_health"] = {
+        "findings": queue_findings,
+        "pending_count": len(pending_q),
+    }
+
+    # ── 3. Security scan ─────────────────────────────────────────────────
+    swarm_sec = _sec.scan_swarm_directory(paths)
+    shim_sec = _sec.scan_platform_shims(div_root)
+    all_sec = swarm_sec + shim_sec
+    counts = _sec.severity_counts(all_sec)
+    quarantine_messages: list[str] = []
+    if all_sec and fix:
+        quarantine_messages = _quarantine_findings(paths, div_root, all_sec)
+    result["security"] = {
+        "findings": [
+            {"source": f.source, "line": f.line, "category": f.category,
+             "severity": f.severity, "excerpt": f.excerpt}
+            for f in all_sec
+        ],
+        "counts": counts,
+        "quarantined": quarantine_messages,
+    }
+
+    # ── 4. Pheromone trail integrity ─────────────────────────────────────
+    identity = _sign.load_identity(paths.root)
+    tampered: list[dict] = []
+    blocked_fingerprints: list[str] = []
+    trail_len = 0
+    if identity:
+        tampered = _sign.verify_trail(paths.root)
+        trail_len = len(_sign.read_trail(paths.root))
+        if tampered and fix:
+            fps = {r.get("fingerprint", "") for r in tampered
+                   if r.get("fingerprint", "") not in ("unsigned", "")}
+            for fp in fps:
+                _sign.block_peer(paths.root, fp)
+                blocked_fingerprints.append(fp)
+    result["trail"] = {
+        "has_identity": identity is not None,
+        "length": trail_len,
+        "tampered": tampered,
+        "blocked_fingerprints": blocked_fingerprints,
+    }
+
+    # ── 5. Summary & memory log ──────────────────────────────────────────
+    total_issues = len(queue_findings) + len(all_sec) + len(tampered)
+    result["total_issues"] = total_issues
+    result["healthy"] = total_issues == 0
+
+    if all_sec:
+        sources = ", ".join(sorted({f.source for f in all_sec}))
+        summary = (
+            f"heal found {counts['CRITICAL']} critical / {counts['HIGH']} high / "
+            f"{counts['MEDIUM']} medium security issues in: {sources}"
+        )
+        append_memory(paths, topic="heal-security-scan", decision=summary,
+                      why="Automatic heal audit log — findings must not be silently lost",
+                      tradeoff="", agent_id="swarm-heal")
+        result["memory_logged"] = True
+    else:
+        result["memory_logged"] = False
+
+    return result

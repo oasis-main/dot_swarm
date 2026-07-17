@@ -39,7 +39,7 @@ def _default_agent() -> str:
 
 @click.group()
 @click.option("--path", default=".", help="Path to operate on (default: cwd)")
-@click.version_option("1.0.0")
+@click.version_option("2.0.0")
 @click.pass_context
 def cli(ctx: click.Context, path: str) -> None:
     """dot_swarm — markdown-native agent orchestration.
@@ -826,57 +826,42 @@ def heal(ctx: click.Context, fix: bool, depth: int) -> None:
       swarm heal --fix        # Attempt automatic remediation
       swarm heal --depth 2    # Descend two levels into child divisions
     """
+    from . import ai_ops as _ai_ops
     from . import security as _sec
-    from . import signing as _sign
 
     paths    = _get_paths(ctx.obj["path"])
-    div_root = paths.root.parent
-    div_name = div_root.name
+    div_name = paths.root.parent.name
 
     click.echo(f"\n⟳  Healing {div_name}…\n")
 
+    # SWC-047: heal's actual logic lives in ai_ops.heal() (a pure function)
+    # so the CLI and the MCP `swarm_heal` tool share ONE implementation —
+    # this command just formats the result the way it always has.
+    result = _ai_ops.heal(paths, fix=fix, depth=depth)
+
     # ── 1. Alignment ────────────────────────────────────────────────────────
     click.echo("── Alignment ──────────────────────────────────────────")
-
-    parent_paths = find_parent_paths(paths)
-    if parent_paths:
-        al = get_alignment(paths, parent_paths)
-        label = parent_paths.root.parent.name
-        if al:
-            click.echo(f"  ↑ {len(al)} link(s) → parent: {label}")
+    al = result["alignment"]
+    if al["parent"]:
+        if al["parent_links"]:
+            click.echo(f"  ↑ {al['parent_links']} link(s) → parent: {al['parent']}")
         else:
-            click.echo(f"  ↑ No explicit links to parent ({label})")
+            click.echo(f"  ↑ No explicit links to parent ({al['parent']})")
     else:
         click.echo("  ↑ No parent division found.")
 
-    child_divisions = discover_divisions(div_root, depth=depth)
-    children = [(p, ps) for p, ps in child_divisions if p != div_root]
-    child_links = sum(len(get_alignment(paths, cps)) for _, cps in children)
-    orphan_items: list[str] = []
-    if children:
-        click.echo(f"  ↓ {child_links} link(s) across {len(children)} child division(s)")
-        # Identify local items with no upward or downward link
-        local_active, local_pending, _ = read_queue(paths)
-        linked_ids = set()
-        if parent_paths:
-            for l_item, _ in get_alignment(paths, parent_paths):
-                linked_ids.add(l_item.id)
-        for _, cps in children:
-            for l_item, _ in get_alignment(paths, cps):
-                linked_ids.add(l_item.id)
-        for item in local_active + local_pending:
-            if item.id not in linked_ids:
-                orphan_items.append(item.id)
-        if orphan_items:
-            click.echo(f"  ℹ  {len(orphan_items)} orphaned item(s) (no cross-division links):")
-            for oid in orphan_items[:5]:
+    if al["children"]:
+        click.echo(f"  ↓ {al['child_links']} link(s) across {al['children']} child division(s)")
+        if al["orphan_items"]:
+            click.echo(f"  ℹ  {len(al['orphan_items'])} orphaned item(s) (no cross-division links):")
+            for oid in al["orphan_items"][:5]:
                 click.echo(f"     {oid}")
     else:
         click.echo("  ↓ No child divisions found.")
 
     # ── 2. Queue health ─────────────────────────────────────────────────────
     click.echo("\n── Queue Health ────────────────────────────────────────")
-    queue_findings = audit(paths)
+    queue_findings = result["queue_health"]["findings"]
     if queue_findings:
         for f in queue_findings:
             icon = "⚠️ " if f["severity"] == "WARN" else "🚨"
@@ -884,76 +869,58 @@ def heal(ctx: click.Context, fix: bool, depth: int) -> None:
             click.echo(f"  {icon} {id_str}{f['message']}")
     else:
         click.echo("  ✓ No stale claims or blocked items.")
-    _, pending_q, _ = read_queue(paths)
-    if pending_q:
-        click.echo(f"  ℹ  {len(pending_q)} pending item(s) awaiting pickup.")
+    if result["queue_health"]["pending_count"]:
+        click.echo(f"  ℹ  {result['queue_health']['pending_count']} pending item(s) awaiting pickup.")
 
     # ── 3. Security scan ────────────────────────────────────────────────────
     click.echo("\n── Security Scan ───────────────────────────────────────")
-    swarm_sec  = _sec.scan_swarm_directory(paths)
-    shim_sec   = _sec.scan_platform_shims(div_root)
-    all_sec    = swarm_sec + shim_sec
-    counts     = _sec.severity_counts(all_sec)
-
-    if all_sec:
+    sec = result["security"]
+    counts = sec["counts"]
+    if sec["findings"]:
         click.echo(
             f"  🚨 {counts['CRITICAL']} critical  "
             f"⚠️  {counts['HIGH']} high  "
             f"ℹ️  {counts['MEDIUM']} medium"
         )
-        for line in _sec.format_findings(all_sec):
+        findings_objs = [_sec.SecurityFinding(**f) for f in sec["findings"]]
+        for line in _sec.format_findings(findings_objs):
             click.echo(line)
-
-        if fix:
+        if fix and sec["quarantined"]:
             click.echo("\n  [--fix] Backing up flagged files to .swarm/quarantine/…")
-            _quarantine_findings(paths, div_root, all_sec)
+            for msg in sec["quarantined"]:
+                click.echo(f"     {msg}")
+            click.echo("  ⚠  Flagged files backed up. Review quarantine/ and remove injections manually.")
+            click.echo("     Run 'swarm heal' again after cleaning to confirm resolution.")
     else:
         click.echo("  ✓ No adversarial content detected.")
 
     # ── 4. Pheromone trail integrity ─────────────────────────────────────────
     click.echo("\n── Pheromone Trail Integrity ───────────────────────────")
-    identity = _sign.load_identity(paths.root)
-    tampered: list[dict] = []
-    if not identity:
+    trail = result["trail"]
+    if not trail["has_identity"]:
         click.echo("  ℹ  No signing identity. Run 'swarm init' to enable trail signing.")
+    elif trail["tampered"]:
+        click.echo(f"  🚨 {len(trail['tampered'])} tampered trail entry(ies) detected!")
+        for rec in trail["tampered"][:5]:
+            click.echo(
+                f"     Fingerprint: {rec.get('fingerprint','?')}  "
+                f"Agent: {rec['agent_id']}  Op: {rec['op']}"
+            )
+        for fp in trail["blocked_fingerprints"]:
+            click.echo(f"  🔒 Blocked fingerprint: {fp}")
     else:
-        tampered = _sign.verify_trail(paths.root)
-        trail_len = len(_sign.read_trail(paths.root))
-        if tampered:
-            click.echo(f"  🚨 {len(tampered)} tampered trail entry(ies) detected!")
-            for rec in tampered[:5]:
-                click.echo(
-                    f"     Fingerprint: {rec.get('fingerprint','?')}  "
-                    f"Agent: {rec['agent_id']}  Op: {rec['op']}"
-                )
-            if fix:
-                fps = {r.get("fingerprint", "") for r in tampered
-                       if r.get("fingerprint", "") not in ("unsigned", "")}
-                for fp in fps:
-                    _sign.block_peer(paths.root, fp)
-                    click.echo(f"  🔒 Blocked fingerprint: {fp}")
-        else:
-            click.echo(f"  ✓ Trail verified ({trail_len} entries, all signatures valid).")
+        click.echo(f"  ✓ Trail verified ({trail['length']} entries, all signatures valid).")
 
-    # ── 5. Summary & memory log ──────────────────────────────────────────────
+    # ── 5. Summary ───────────────────────────────────────────────────────────
     click.echo("\n── Summary ─────────────────────────────────────────────")
-    total_issues = len(queue_findings) + len(all_sec) + len(tampered)
-    if total_issues == 0:
+    if result["healthy"]:
         click.echo(f"  ✓ {div_name} is healthy.\n")
     else:
-        click.echo(f"  {total_issues} issue(s) found.")
-        if all_sec and not fix:
+        click.echo(f"  {result['total_issues']} issue(s) found.")
+        if sec["findings"] and not fix:
             click.echo("  Run 'swarm heal --fix' to quarantine adversarial content.\n")
 
-    if all_sec:
-        sources = ", ".join(sorted({f.source for f in all_sec}))
-        summary = (
-            f"heal found {counts['CRITICAL']} critical / {counts['HIGH']} high / "
-            f"{counts['MEDIUM']} medium security issues in: {sources}"
-        )
-        append_memory(paths, topic="heal-security-scan", decision=summary,
-                      why="Automatic heal audit log — findings must not be silently lost",
-                      tradeoff="", agent_id="swarm-heal")
+    if result["memory_logged"]:
         click.echo(f"  Findings logged to memory.md.")
 
     click.echo("")
@@ -2782,6 +2749,231 @@ def key_open(ctx: click.Context, file_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# swarm agent — per-agent Ed25519 identity (SWC-048)
+# ---------------------------------------------------------------------------
+
+@cli.group(name="agent")
+@click.pass_context
+def agent_group(ctx: click.Context) -> None:
+    """Manage per-agent Ed25519 identities — who can sign as whom.
+
+    The swarm-wide .signing_key (see 'swarm key') is ONE shared secret —
+    any holder can sign as ANY agent_id. Per-agent identity fixes that:
+    each agent gets its OWN keypair, so compromising one agent's key can
+    never forge another agent's signature.
+
+    The PRIVATE key never lives in .swarm/ — it stays local to the agent
+    (default ~/.dot_swarm/keys/<agent_id>.key, override with
+    DOT_SWARM_AGENT_KEY_DIR). Only the PUBLIC key is published into the
+    shared, git-tracked .swarm/agents/ registry.
+
+    Requires the optional 'cryptography' package:
+      pip install 'dot-swarm[crypto]'
+
+    \b
+    swarm agent init <id>          generate + register this agent's keypair
+    swarm agent list               show every agent registered in this swarm
+    swarm agent show <id>          show one agent's public key + fingerprint
+    """
+
+
+@agent_group.command(name="init")
+@click.argument("agent_id")
+@click.pass_context
+def agent_init(ctx: click.Context, agent_id: str) -> None:
+    """Generate (if needed) and register AGENT_ID's Ed25519 keypair.
+
+    Idempotent — re-running for an agent that already has a key just
+    re-publishes the same public key (never rotates silently).
+    """
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    try:
+        ident = _identity.generate_agent_identity(agent_id)
+        dest = _identity.register_agent(paths.root, ident)
+    except _identity.CryptoUnavailable as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    click.echo(f"✓ Identity ready for '{agent_id}'  [fingerprint {ident.fingerprint}]")
+    click.echo(f"  Public key registered: {dest.relative_to(paths.root.parent)}")
+    click.echo(f"  Private key: {_identity.default_key_dir() / (agent_id + '.key')}")
+    click.echo("  Back this up and NEVER commit it — losing it means re-registering")
+    click.echo("  under a new key, and everyone else's signature checks stay unaffected.")
+
+
+@agent_group.command(name="list")
+@click.pass_context
+def agent_list(ctx: click.Context) -> None:
+    """List every agent with a registered public key in this swarm."""
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    agents = _identity.list_registered_agents(paths.root)
+    if not agents:
+        click.echo("No agents registered. Run 'swarm agent init <id>' to add one.")
+        return
+    for a in agents:
+        click.echo(f"  {a.agent_id:20} {a.algorithm}  fingerprint={a.fingerprint}  created={a.created}")
+
+
+@agent_group.command(name="show")
+@click.argument("agent_id")
+@click.pass_context
+def agent_show(ctx: click.Context, agent_id: str) -> None:
+    """Show one agent's registered public key and fingerprint."""
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    ident = _identity.load_registered_agent(paths.root, agent_id)
+    if ident is None:
+        click.echo(f"No registered identity for '{agent_id}'.", err=True)
+        sys.exit(1)
+    click.echo(f"agent_id:    {ident.agent_id}")
+    click.echo(f"algorithm:   {ident.algorithm}")
+    click.echo(f"fingerprint: {ident.fingerprint}")
+    click.echo(f"public_key:  {ident.public_key}")
+    click.echo(f"created:     {ident.created}")
+
+
+# ---------------------------------------------------------------------------
+# swarm comment — threaded, signed discussion on a work item (SWC-051)
+# ---------------------------------------------------------------------------
+
+@cli.command(name="comment")
+@click.argument("item_id")
+@click.argument("body")
+@click.option("--reply-to", "reply_to", default="", help="comment_id this replies to")
+@click.option("--agent", default=None, help="Agent ID override")
+@click.pass_context
+def comment_cmd(ctx: click.Context, item_id: str, body: str, reply_to: str, agent: str | None) -> None:
+    """Add a comment to ITEM_ID's discussion thread.
+
+    Signed with the commenting agent's Ed25519 key (see 'swarm agent init')
+    when one is registered locally; recorded unsigned otherwise.
+    """
+    from . import comments as _comments
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    agent_id = agent or _default_agent()
+    c = _comments.add_comment(paths, item_id, agent_id, body, in_reply_to=reply_to)
+    signed_note = "" if c.signature == _identity.UNSIGNED else "  [signed]"
+    click.echo(f"✓ Comment {c.comment_id} on [{item_id}] by {agent_id}{signed_note}")
+
+
+@cli.command(name="comments")
+@click.argument("item_id")
+@click.option("--verify", is_flag=True, help="Show signature verification status per comment")
+@click.pass_context
+def comments_cmd(ctx: click.Context, item_id: str, verify: bool) -> None:
+    """Show ITEM_ID's discussion thread in chronological order."""
+    from . import comments as _comments
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    thread = _comments.read_comments(paths, item_id)
+    if not thread:
+        click.echo(f"No comments on [{item_id}].")
+        return
+    known_ids = {c.comment_id for c in thread}
+    for c in thread:
+        reply = ""
+        if c.in_reply_to:
+            reply = f"  (reply to {c.in_reply_to}{'' if c.in_reply_to in known_ids else ', orphaned'})"
+        status = ""
+        if verify:
+            if c.signature == _identity.UNSIGNED:
+                status = "  [unsigned]"
+            else:
+                ok = _comments.verify_comment(paths, c)
+                status = "  [✓ verified]" if ok else "  [✗ signature does not verify]"
+        click.echo(f"[{c.comment_id}] {c.agent_id} @ {c.timestamp}{reply}{status}")
+        click.echo(f"    {c.body}")
+
+
+# ---------------------------------------------------------------------------
+# swarm mail — direct agent-to-agent messaging within one swarm (SWC-052)
+# ---------------------------------------------------------------------------
+
+@cli.group(name="mail")
+@click.pass_context
+def mail_group(ctx: click.Context) -> None:
+    """Direct agent-to-agent messaging within THIS swarm.
+
+    Distinct from 'swarm federation' (cross-swarm/cross-repo, HMAC-signed,
+    git-transported). Mail is for agents sharing this .swarm/ directory —
+    e.g. an agent with no direct internet egress delegating a fetch to a
+    peer that has it. Messages are Ed25519-signed (see 'swarm agent init')
+    when the sender has a local key; verify with --verify on read/inbox.
+
+    \b
+    swarm mail send <to> <subject> <body>   deliver into <to>'s inbox
+    swarm mail inbox <agent>                list unread (add --all for read too)
+    swarm mail read <agent> <msg_id>        read one message, marks it read
+    """
+
+
+@mail_group.command(name="send")
+@click.argument("to_agent")
+@click.argument("subject")
+@click.argument("body")
+@click.option("--reply-to", "reply_to", default="", help="msg_id this replies to")
+@click.option("--agent", default=None, help="Sending agent ID override")
+@click.pass_context
+def mail_send(ctx: click.Context, to_agent: str, subject: str, body: str,
+               reply_to: str, agent: str | None) -> None:
+    """Send a message to TO_AGENT's inbox."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    from_agent = agent or _default_agent()
+    m = _mailbox.send_message(paths, from_agent, to_agent, subject, body, in_reply_to=reply_to)
+    click.echo(f"✓ Sent {m.msg_id} to {to_agent} from {from_agent}")
+
+
+@mail_group.command(name="inbox")
+@click.argument("agent_id")
+@click.option("--all", "include_read", is_flag=True, help="Include already-read messages")
+@click.option("--verify", is_flag=True, help="Show signature verification status per message")
+@click.pass_context
+def mail_inbox(ctx: click.Context, agent_id: str, include_read: bool, verify: bool) -> None:
+    """List AGENT_ID's inbox (unread only, unless --all)."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    messages = _mailbox.list_inbox(paths, agent_id, include_read=include_read)
+    if not messages:
+        click.echo(f"No mail for '{agent_id}'.")
+        return
+    for m in messages:
+        status = ""
+        if verify:
+            status = "  [✓ verified]" if _mailbox.verify_message(paths, m) else "  [✗ unverified]"
+        click.echo(f"[{m.msg_id}] from {m.from_agent} @ {m.timestamp}: {m.subject}{status}")
+
+
+@mail_group.command(name="read")
+@click.argument("agent_id")
+@click.argument("msg_id")
+@click.option("--verify", is_flag=True, help="Verify the sender's signature before showing the body")
+@click.pass_context
+def mail_read(ctx: click.Context, agent_id: str, msg_id: str, verify: bool) -> None:
+    """Read one message from AGENT_ID's inbox and mark it read."""
+    from . import mailbox as _mailbox
+    paths = _get_paths(ctx.obj["path"])
+    m = _mailbox.read_message(paths, agent_id, msg_id)
+    if m is None:
+        click.echo(f"No unread message '{msg_id}' for '{agent_id}'.", err=True)
+        sys.exit(1)
+    if verify:
+        ok = _mailbox.verify_message(paths, m)
+        click.echo(f"[{'✓ verified' if ok else '✗ NOT verified — treat sender as unconfirmed'}]")
+    click.echo(f"From:    {m.from_agent}")
+    click.echo(f"Subject: {m.subject}")
+    click.echo(f"At:      {m.timestamp}")
+    if m.in_reply_to:
+        click.echo(f"Reply to: {m.in_reply_to}")
+    click.echo(f"\n{m.body}")
+
+
+# ---------------------------------------------------------------------------
 # swarm configure
 # ---------------------------------------------------------------------------
 
@@ -3402,47 +3594,6 @@ def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:
         click.echo(result_text)
     except Exception as e:
         click.echo(f"  ⚠  Drift check error: {e}")
-
-
-def _quarantine_findings(
-    paths: "SwarmPaths",
-    div_root: Path,
-    findings: list,
-) -> None:
-    """Back up files with adversarial findings to .swarm/quarantine/ for human review.
-
-    We do NOT auto-delete content — humans must review and excise injections.
-    The backup provides a dated record and preserves the original for forensics.
-    """
-    quarantine_dir = paths.root / "quarantine"
-    quarantine_dir.mkdir(exist_ok=True)
-
-    ts = utcnow().strftime("%Y%m%dT%H%MZ")
-    by_source: dict[str, list] = {}
-    for f in findings:
-        by_source.setdefault(f.source, []).append(f)
-
-    for source, src_findings in by_source.items():
-        if source.startswith("workflows/"):
-            fpath = paths.workflows / source[len("workflows/"):]
-        elif source in ("CLAUDE.md", ".windsurfrules", ".cursorrules",
-                        ".github/copilot-instructions.md"):
-            fpath = div_root / source
-        else:
-            fpath = paths.root / source
-
-        if not fpath.exists():
-            continue
-
-        safe_name = source.replace("/", "_").replace(".", "_")
-        backup = quarantine_dir / f"{ts}_{safe_name}.bak"
-        backup.write_text(fpath.read_text(encoding="utf-8", errors="replace"))
-
-        categories = ", ".join(sorted({f.category for f in src_findings}))
-        click.echo(f"     {source} → quarantine/{backup.name}  [{categories}]")
-
-    click.echo("  ⚠  Flagged files backed up. Review quarantine/ and remove injections manually.")
-    click.echo("     Run 'swarm heal' again after cleaning to confirm resolution.")
 
 
 if __name__ == "__main__":

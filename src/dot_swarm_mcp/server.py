@@ -4,7 +4,10 @@ Exposes .swarm/ directory operations as MCP tools. Agents on any MCP-compatible
 platform (Claude Code, Windsurf, Cursor, etc.) can call these tools to read and
 write coordination state without manually editing markdown files.
 
-Transport: stdio (default) — suitable for local MCP server configs.
+Transport: stdio (default) — one server PROCESS per agent connection. This
+matters for SWC-049 (see "Process identity" below): stdio gives each agent
+its own process, so identity can be bound once at startup instead of trusted
+per-call.
 
 Configure in Claude Code (~/.claude/settings.json):
     {
@@ -12,10 +15,34 @@ Configure in Claude Code (~/.claude/settings.json):
         "dot-swarm": {
           "command": "python",
           "args": ["-m", "dot_swarm_mcp"],
-          "env": { "SWARM_ROOT": "/path/to/oasis-x" }
+          "env": {
+            "SWARM_ROOT": "/path/to/oasis-x",
+            "DOT_SWARM_AGENT_ID": "house"
+          }
         }
       }
     }
+
+Process identity (SWC-049)
+---------------------------
+Before this, every write tool (swarm_claim, swarm_done, ...) trusted whatever
+``agent_id`` string the CALLER passed in the tool arguments — zero
+verification. A confused or hostile caller (e.g. a hijacked prompt) could
+simply pass ``agent_id: "yesman"`` and have the write attributed to an agent
+it isn't.
+
+Setting ``DOT_SWARM_AGENT_ID`` binds this process to one identity for its
+whole lifetime. Once bound, that identity ALWAYS wins for write attribution —
+any ``agent_id``/``inspector_id`` argument the caller supplies is ignored in
+favor of the bound one (see ``_effective_agent_id``). If the bound agent has
+also run ``swarm agent init`` (SWC-048, Ed25519), every write is additionally
+signed with its private key and the signature is recorded in trail.log —
+a caller can no longer just *say* it's a given agent; the process has to
+cryptographically prove it.
+
+Leaving ``DOT_SWARM_AGENT_ID`` unset preserves the exact old behavior
+(caller-supplied ``agent_id``, unsigned) — existing configs and the local
+CLI's own claim/done/etc. commands are unaffected.
 """
 
 from __future__ import annotations
@@ -44,9 +71,62 @@ from dot_swarm.operations import (
     write_state,
     _division_code_from_paths,
 )
-from dot_swarm.ai_ops import heal
+from dot_swarm.ai_ops import heal as _heal
+from dot_swarm import identity as _identity
+from dot_swarm import signing as _sign
+from dot_swarm import comments as _comments
+from dot_swarm import mailbox as _mailbox
 
 server = Server("dot-swarm")
+
+# ---------------------------------------------------------------------------
+# Process identity (SWC-049) — bound once, never trusted from a call argument
+# ---------------------------------------------------------------------------
+
+def _bound_agent_id() -> str | None:
+    """The identity this server PROCESS is bound to, if any.
+
+    Read live (not cached at import) so a single long-lived Python process
+    running multiple test cases — or, in principle, a supervisor that
+    re-execs with a new env — always sees the current binding. In normal
+    stdio deployment this is set once before the process starts and never
+    changes for its lifetime, which is what makes it trustworthy: the
+    caller sends tool arguments over stdio, but never controls this
+    process's environment.
+    """
+    return os.environ.get("DOT_SWARM_AGENT_ID", "").strip() or None
+
+
+def _effective_agent_id(arguments: dict, field: str = "agent_id") -> str:
+    """Resolve who a write operation is attributed to.
+
+    A bound process identity always overrides whatever the caller passed —
+    that's the whole fix. With no binding, falls back to the caller-supplied
+    value, identical to pre-SWC-049 behavior.
+    """
+    bound = _bound_agent_id()
+    if bound:
+        return bound
+    return arguments.get(field, "")
+
+
+def _audit_write(paths: SwarmPaths, op: str, agent_id: str, payload: dict) -> None:
+    """Best-effort signed trail entry for an MCP write. Never raises — a
+    trail-logging failure must never block the actual operation it's
+    recording. Layers a per-agent Ed25519 signature (SWC-048) on top of the
+    existing swarm-wide HMAC trail record when this process has a bound,
+    locally-keyed identity; falls back to the plain (unsigned-by-agent)
+    record otherwise, so trail.log's existing schema and readers are
+    unaffected either way."""
+    try:
+        record = _sign.sign_operation(paths.root, op, agent_id, payload)
+        bound = _bound_agent_id()
+        if bound and _identity.has_crypto():
+            record["agent_signature"] = _identity.sign_agent(bound, payload)
+        _sign.append_trail(paths.root, record)
+    except Exception:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Path resolution
@@ -276,6 +356,83 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="swarm_comment",
+            description=(
+                "Add a signed comment to a work item's discussion thread "
+                "(SWC-051). Set reply_to to a comment_id to thread a reply."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["id", "body"],
+                "properties": {
+                    "id": {"type": "string", "description": "Item ID e.g. ORG-002"},
+                    "body": {"type": "string"},
+                    "reply_to": {"type": "string", "description": "comment_id this replies to"},
+                    "agent_id": {"type": "string", "description": "Your agent ID (ignored if this process has a bound identity — see SWC-049)"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_comments",
+            description="Read a work item's discussion thread in chronological order.",
+            inputSchema={
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_mail_send",
+            description=(
+                "Send a direct message to another agent's inbox WITHIN this "
+                "swarm (SWC-052) — e.g. to delegate a fetch to a peer with "
+                "different egress. Distinct from swarm_add/comment; not "
+                "cross-repo (see federation for that)."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient agent ID"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "reply_to": {"type": "string", "description": "msg_id this replies to"},
+                    "agent_id": {"type": "string", "description": "Sending agent ID (ignored if this process has a bound identity — see SWC-049)"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_mail_inbox",
+            description="List an agent's inbox (unread only, unless include_read).",
+            inputSchema={
+                "type": "object",
+                "required": ["agent_id"],
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "include_read": {"type": "boolean", "default": False},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_mail_read",
+            description="Read one message by msg_id from an agent's inbox; marks it read.",
+            inputSchema={
+                "type": "object",
+                "required": ["agent_id", "msg_id"],
+                "properties": {
+                    "agent_id": {"type": "string"},
+                    "msg_id": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
             name="swarm_heal",
             description="Run a full security scan, alignment check, and trail verification.",
             inputSchema={
@@ -283,6 +440,19 @@ async def list_tools() -> list[types.Tool]:
                 "properties": {
                     "path": {"type": "string"},
                     "fix": {"type": "boolean", "description": "True to quarantine high-risk files (use with caution)"},
+                },
+            },
+        ),
+        types.Tool(
+            name="swarm_handoff",
+            description=(
+                "Render a handoff summary (current focus, active items, ready-for-pickup "
+                "queue, context pointers) for the next agent picking up this swarm."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
                 },
             },
         ),
@@ -360,29 +530,34 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "swarm_claim":
             paths = _resolve_paths(path)
-            item = claim_item(paths, arguments["id"], arguments["agent_id"])
+            agent_id = _effective_agent_id(arguments)
+            item = claim_item(paths, arguments["id"], agent_id)
             write_state(paths, {
                 "Current focus": item.description[:100],
                 "Active items": item.id,
-                "last_agent": arguments["agent_id"],
+                "last_agent": agent_id,
             })
+            _audit_write(paths, "claim", agent_id, {"item_id": item.id})
             return [types.TextContent(type="text", text=f"Claimed [{item.id}]: {item.description}")]
 
         elif name == "swarm_done":
             paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments)
             item = done_item(
-                paths, arguments["id"], arguments["agent_id"],
+                paths, arguments["id"], agent_id,
                 arguments.get("note", "")
             )
-            updates: dict = {"last_agent": arguments["agent_id"]}
+            updates: dict = {"last_agent": agent_id}
             if nf := arguments.get("next_focus"):
                 updates["Current focus"] = nf
                 updates["Handoff note"] = nf
             write_state(paths, updates)
+            _audit_write(paths, "done", agent_id, {"item_id": item.id, "note": arguments.get("note", "")})
             return [types.TextContent(type="text", text=f"Done [{item.id}]: {item.description}")]
 
         elif name == "swarm_add":
             paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments)
             code = arguments.get("division_code") or _division_code_from_paths(paths)
             item = add_item(
                 paths=paths,
@@ -394,6 +569,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 refs=arguments.get("refs"),
                 depends=arguments.get("depends"),
             )
+            _audit_write(paths, "add", agent_id or "unknown", {"item_id": item.id})
             return [types.TextContent(
                 type="text",
                 text=f"Added [{item.id}] ({item.priority.value}): {item.description}"
@@ -401,14 +577,16 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "swarm_append_memory":
             paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments) or "unknown"
             entry = append_memory(
                 paths=paths,
                 topic=arguments["topic"],
                 decision=arguments["decision"],
                 why=arguments["why"],
                 tradeoff=arguments.get("tradeoff", ""),
-                agent_id=arguments.get("agent_id", "unknown"),
+                agent_id=agent_id,
             )
+            _audit_write(paths, "append_memory", agent_id, {"topic": arguments["topic"]})
             return [types.TextContent(type="text", text=f"Appended to memory.md:\n{entry}")]
 
         elif name == "swarm_audit":
@@ -420,13 +598,14 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "swarm_partial":
             paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments)
             item = partial_item(
-                paths, arguments["id"], arguments["agent_id"],
+                paths, arguments["id"], agent_id,
                 arguments.get("note", "")
             )
             if proof := arguments.get("proof"):
                 item.proof = proof
-                # Partial doesn't write queue.md by default in the new Claim model, 
+                # Partial doesn't write queue.md by default in the new Claim model,
                 # but we want to persist the proof if provided via MCP.
                 # Since we are using the new claims logic, partial_item already wrote a claim.
                 # If we need to update the claim with proof, we should handle that.
@@ -435,18 +614,21 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 from datetime import datetime
                 write_claim(paths, Claim(
                     item_id=item.id,
-                    agent_id=arguments["agent_id"],
+                    agent_id=agent_id,
                     state=ItemState.PARTIAL,
                     timestamp=utcnow(),
                     proof=proof,
                     note=arguments.get("note", "")
                 ))
 
+            _audit_write(paths, "partial", agent_id, {"item_id": item.id, "proof": arguments.get("proof", "")})
             return [types.TextContent(type="text", text=f"Updated [{item.id}] (PARTIAL): {item.description}")]
 
         elif name == "swarm_block":
             paths = _resolve_paths(path)
+            agent_id = _bound_agent_id() or "unknown"
             item = block_item(paths, arguments["id"], arguments["reason"])
+            _audit_write(paths, "block", agent_id, {"item_id": item.id, "reason": arguments["reason"]})
             return [types.TextContent(type="text", text=f"Blocked [{item.id}]: {arguments['reason']}")]
 
         elif name == "swarm_ready":
@@ -462,22 +644,65 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             paths = _resolve_paths(path)
             status = arguments["status"]
             item_id = arguments["id"]
-            inspector_id = arguments["inspector_id"]
+            inspector_id = _effective_agent_id(arguments, field="inspector_id")
 
             if status == "pass":
                 item = done_item(paths, item_id, inspector_id, "Inspection PASSED")
+                _audit_write(paths, "inspect_pass", inspector_id, {"item_id": item_id})
                 return [types.TextContent(type="text", text=f"Inspection PASSED for [{item_id}]")]
             else:
                 reason = arguments.get("reason", "No reason provided")
                 item, exhausted = reopen_item(paths, item_id, inspector_id, reason)
+                _audit_write(paths, "inspect_fail", inspector_id, {"item_id": item_id, "reason": reason})
                 msg = f"Inspection FAILED for [{item_id}]: {reason}"
                 if exhausted:
                     msg += " (Max retries exhausted, item BLOCKED)"
                 return [types.TextContent(type="text", text=msg)]
 
+        elif name == "swarm_comment":
+            paths = _resolve_paths(path)
+            agent_id = _effective_agent_id(arguments) or "unknown"
+            c = _comments.add_comment(
+                paths, arguments["id"], agent_id, arguments["body"],
+                in_reply_to=arguments.get("reply_to", ""),
+            )
+            _audit_write(paths, "comment", agent_id, {"item_id": arguments["id"], "comment_id": c.comment_id})
+            return [types.TextContent(type="text", text=f"Comment {c.comment_id} on [{arguments['id']}] by {agent_id}")]
+
+        elif name == "swarm_comments":
+            paths = _resolve_paths(path)
+            thread = _comments.read_comments(paths, arguments["id"])
+            result = [c.to_dict() for c in thread]
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "swarm_mail_send":
+            paths = _resolve_paths(path)
+            from_agent = _effective_agent_id(arguments) or "unknown"
+            m = _mailbox.send_message(
+                paths, from_agent, arguments["to"], arguments["subject"], arguments["body"],
+                in_reply_to=arguments.get("reply_to", ""),
+            )
+            _audit_write(paths, "mail_send", from_agent, {"to": arguments["to"], "msg_id": m.msg_id})
+            return [types.TextContent(type="text", text=f"Sent {m.msg_id} to {arguments['to']} from {from_agent}")]
+
+        elif name == "swarm_mail_inbox":
+            paths = _resolve_paths(path)
+            messages = _mailbox.list_inbox(
+                paths, arguments["agent_id"], include_read=arguments.get("include_read", False)
+            )
+            result = [m.to_dict() for m in messages]
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "swarm_mail_read":
+            paths = _resolve_paths(path)
+            m = _mailbox.read_message(paths, arguments["agent_id"], arguments["msg_id"])
+            if m is None:
+                return [types.TextContent(type="text", text=f"No unread message '{arguments['msg_id']}' for '{arguments['agent_id']}'.")]
+            return [types.TextContent(type="text", text=json.dumps(m.to_dict(), indent=2))]
+
         elif name == "swarm_heal":
             paths = _resolve_paths(path)
-            findings = heal(paths, fix=arguments.get("fix", False))
+            findings = _heal(paths, fix=arguments.get("fix", False))
             return [types.TextContent(type="text", text=json.dumps(findings, indent=2))]
 
         elif name == "swarm_handoff":

@@ -163,3 +163,96 @@ def test_handoff_produces_output(tmp_path: Path) -> None:
     result = runner.invoke(cli, ["--path", str(div), "handoff"])
     assert result.exit_code == 0
     assert len(result.output) > 20
+
+
+# ---------------------------------------------------------------------------
+# swarm comment / comments (SWC-051)
+# ---------------------------------------------------------------------------
+
+def test_comment_and_comments_round_trip(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "looks good", "--agent", "house"])
+    assert result.exit_code == 0
+    assert "Comment" in result.output
+
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-001"])
+    assert result.exit_code == 0
+    assert "looks good" in result.output
+    assert "house" in result.output
+
+
+def test_comments_empty_thread(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-404"])
+    assert result.exit_code == 0
+    assert "No comments" in result.output
+
+
+def test_comment_reply_threading_via_cli(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "question?", "--agent", "house"])
+    import re
+    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text()
+    parent_id = re.search(r'"comment_id":"([a-f0-9]+)"', thread_file).group(1)
+
+    result = runner.invoke(cli, [
+        "--path", str(div), "comment", "SWC-001", "answer.",
+        "--agent", "kolmogorov", "--reply-to", parent_id,
+    ])
+    assert result.exit_code == 0
+
+    result = runner.invoke(cli, ["--path", str(div), "comments", "SWC-001"])
+    assert f"reply to {parent_id}" in result.output
+
+
+# ---------------------------------------------------------------------------
+# swarm mail (SWC-052)
+# ---------------------------------------------------------------------------
+
+def test_mail_send_and_inbox(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, [
+        "--path", str(div), "mail", "send", "house", "fetch this", "GET https://example.com",
+        "--agent", "yesman",
+    ])
+    assert result.exit_code == 0
+    assert "Sent" in result.output
+
+    result = runner.invoke(cli, ["--path", str(div), "mail", "inbox", "house"])
+    assert result.exit_code == 0
+    assert "fetch this" in result.output
+    assert "yesman" in result.output
+
+
+def test_mail_empty_inbox(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--path", str(div), "mail", "inbox", "nobody"])
+    assert result.exit_code == 0
+    assert "No mail" in result.output
+
+
+def test_mail_read_marks_read_and_disappears_from_inbox(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+
+    runner.invoke(cli, ["--path", str(div), "mail", "send", "house", "s", "b", "--agent", "yesman"])
+    import re
+    inbox_dir = div / ".swarm" / "mailbox" / "house" / "inbox"
+    msg_file = next(inbox_dir.glob("*.json"))
+    msg_id = re.search(r'"msg_id":\s*"([a-f0-9]+)"', msg_file.read_text()).group(1)
+
+    result = runner.invoke(cli, ["--path", str(div), "mail", "read", "house", msg_id])
+    assert result.exit_code == 0
+    assert "From:" in result.output
+    assert "yesman" in result.output
+
+    result = runner.invoke(cli, ["--path", str(div), "mail", "inbox", "house"])
+    assert "No mail" in result.output
