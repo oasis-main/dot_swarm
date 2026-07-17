@@ -39,7 +39,7 @@ def _default_agent() -> str:
 
 @click.group()
 @click.option("--path", default=".", help="Path to operate on (default: cwd)")
-@click.version_option("1.0.0")
+@click.version_option("2.0.0")
 @click.pass_context
 def cli(ctx: click.Context, path: str) -> None:
     """dot_swarm — markdown-native agent orchestration.
