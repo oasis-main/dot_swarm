@@ -85,10 +85,6 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
       priority: high | project: misc
       notes: Remove Python 3.10 (unsupported), add anyio to tests, fix MCP test collection, fix Windows compatibility, and fix state consistency.
 
-- [ ] [SWC-050] [OPEN] Atomic claim() — close the TOCTOU window
-      priority: high | project: misc
-      notes: claim_item() (operations.py:408) does read_queue() -> check state ->
-
 - [ ] [SWC-051] [OPEN] Comments — threaded discussion on a work item, signed
       priority: high | project: misc
       notes: No structured comment/discussion mechanism exists today — coordination
@@ -213,3 +209,7 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
       priority: critical | project: misc
       notes: call_tool() currently trusts whatever `agent_id` string the CALLER | MCP write tools (claim/done/add/append_memory/partial/block/inspect) now resolve agent_id from a process-bound DOT_SWARM_AGENT_ID env var when set, overriding any caller-supplied value -- closes the 'caller can just say it is a different agent' gap. Bound identity + local Ed25519 key (SWC-048) additionally signs each write into trail.log via a new agent_signature field (additive, existing trail.log readers unaffected). Unset env var = unchanged pre-SWC-049 behavior. 4 new tests, 253 passing (was 249).
       depends: SWC-048
+
+- [x] [SWC-050] [DONE · 2026-07-17T18:12Z] Atomic claim() — close the TOCTOU window
+      priority: high | project: misc
+      notes: claim_item() (operations.py:408) does read_queue() -> check state -> | claim_item()'s read-decide-write sequence now runs under a per-item advisory lock (.swarm/claims/.lock-<item-id>, os.open O_CREAT|O_EXCL) closing the TOCTOU window where concurrent claimants could all observe OPEN and all be told they won uncontested. Stale-lock reclaim (30s) guards against a crashed holder; ClaimLockTimeout after 5s default otherwise. Scoped per item_id so unrelated claims never contend. resolve_claims()/COMPETING kept as defense-in-depth for --compete races and non-locking writers. 5 new tests incl. an 8-thread real race proving exactly one winner. 258 passing (was 253).
