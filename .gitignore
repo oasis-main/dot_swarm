@@ -21,5 +21,19 @@ frames/
 !logo.gif
 !icon.gif
 
-# dot_swarm trail — remove to make visible (swarm trail visible)
-.swarm/
+# dot_swarm trail — remove to make visible (swarm trail visible).
+# NOTE: `.swarm/*` (not `.swarm/`) is deliberate — git cannot re-include a
+# path whose PARENT directory is itself excluded ("It is not possible to
+# re-include a file if a parent directory of that file is excluded" — git
+# docs), so a blanket `.swarm/` would silently defeat the negation below no
+# matter how it's written. This is also why the 5 core .swarm/*.md files
+# needed `git add -f` rather than a negation pattern.
+.swarm/*
+
+# SWC-048: per-agent PUBLIC keys are safe to commit and MUST be shared for
+# signature verification to work across a fresh clone/new agent instance —
+# un-ignore them specifically rather than force-adding one file at a time.
+# Never un-ignore the private key itself — it never lives under .swarm/ at
+# all (see identity.py), so there's nothing to accidentally commit here.
+!.swarm/agents/
+!.swarm/agents/*.json

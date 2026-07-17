@@ -9,11 +9,6 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
 
 ## Pending
 
-- [ ] [SWC-048] [OPEN] Per-agent Ed25519 identity — the real "message signing" primitive
-      priority: critical | project: misc
-      notes: Current signing.py is HMAC-SHA256 with ONE SHARED KEY PER SWARM
-      depends: SWC-047
-
 - [ ] [SWC-049] [OPEN] MCP server authentication — bind identity to the process, not the call
       priority: critical | project: misc
       notes: call_tool() currently trusts whatever `agent_id` string the CALLER
@@ -213,3 +208,8 @@ Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never re
 - [x] [SWC-047] [DONE · 2026-07-17T15:37Z] Fix broken MCP server — heal ImportError + zero test coverage
       priority: critical | project: misc
       notes: dot_swarm_mcp/server.py:47 does `from dot_swarm.ai_ops import heal` but | Extracted heal logic into ai_ops.heal() (pure fn, no click.echo); fixed the MCP server's real ImportError; added swarm_handoff to list_tools(); fixed test_mcp.py's masking bug so a broken server.py fails loudly instead of silently skipping. 234 tests pass (was 231 passed + 3 masked-skipped).
+
+- [x] [SWC-048] [DONE · 2026-07-17T15:43Z] Per-agent Ed25519 identity — the real "message signing" primitive
+      priority: critical | project: misc
+      notes: Current signing.py is HMAC-SHA256 with ONE SHARED KEY PER SWARM | New identity.py: per-agent Ed25519 keypairs (private key never in .swarm/, default ~/.dot_swarm/keys/<agent>.key, DOT_SWARM_AGENT_KEY_DIR override). Public-key registry at .swarm/agents/<id>.json, refuses silent key-swap. sign_agent/verify_agent using the registry, never a caller-supplied key. CLI: swarm agent init/list/show. Fixed a real .gitignore bug found while dogfooding: blanket '.swarm/' silently defeats any negation for a subpath (git can't re-include inside an excluded parent) -- changed to '.swarm/*' + explicit un-ignore for .swarm/agents/. 15 new tests incl. the core property: a compromised agent's key cannot forge a peer's signature. 249 tests pass (was 234).
+      depends: SWC-047

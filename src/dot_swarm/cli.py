@@ -2749,6 +2749,94 @@ def key_open(ctx: click.Context, file_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# swarm agent — per-agent Ed25519 identity (SWC-048)
+# ---------------------------------------------------------------------------
+
+@cli.group(name="agent")
+@click.pass_context
+def agent_group(ctx: click.Context) -> None:
+    """Manage per-agent Ed25519 identities — who can sign as whom.
+
+    The swarm-wide .signing_key (see 'swarm key') is ONE shared secret —
+    any holder can sign as ANY agent_id. Per-agent identity fixes that:
+    each agent gets its OWN keypair, so compromising one agent's key can
+    never forge another agent's signature.
+
+    The PRIVATE key never lives in .swarm/ — it stays local to the agent
+    (default ~/.dot_swarm/keys/<agent_id>.key, override with
+    DOT_SWARM_AGENT_KEY_DIR). Only the PUBLIC key is published into the
+    shared, git-tracked .swarm/agents/ registry.
+
+    Requires the optional 'cryptography' package:
+      pip install 'dot-swarm[crypto]'
+
+    \b
+    swarm agent init <id>          generate + register this agent's keypair
+    swarm agent list               show every agent registered in this swarm
+    swarm agent show <id>          show one agent's public key + fingerprint
+    """
+
+
+@agent_group.command(name="init")
+@click.argument("agent_id")
+@click.pass_context
+def agent_init(ctx: click.Context, agent_id: str) -> None:
+    """Generate (if needed) and register AGENT_ID's Ed25519 keypair.
+
+    Idempotent — re-running for an agent that already has a key just
+    re-publishes the same public key (never rotates silently).
+    """
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    try:
+        ident = _identity.generate_agent_identity(agent_id)
+        dest = _identity.register_agent(paths.root, ident)
+    except _identity.CryptoUnavailable as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    click.echo(f"✓ Identity ready for '{agent_id}'  [fingerprint {ident.fingerprint}]")
+    click.echo(f"  Public key registered: {dest.relative_to(paths.root.parent)}")
+    click.echo(f"  Private key: {_identity.default_key_dir() / (agent_id + '.key')}")
+    click.echo("  Back this up and NEVER commit it — losing it means re-registering")
+    click.echo("  under a new key, and everyone else's signature checks stay unaffected.")
+
+
+@agent_group.command(name="list")
+@click.pass_context
+def agent_list(ctx: click.Context) -> None:
+    """List every agent with a registered public key in this swarm."""
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    agents = _identity.list_registered_agents(paths.root)
+    if not agents:
+        click.echo("No agents registered. Run 'swarm agent init <id>' to add one.")
+        return
+    for a in agents:
+        click.echo(f"  {a.agent_id:20} {a.algorithm}  fingerprint={a.fingerprint}  created={a.created}")
+
+
+@agent_group.command(name="show")
+@click.argument("agent_id")
+@click.pass_context
+def agent_show(ctx: click.Context, agent_id: str) -> None:
+    """Show one agent's registered public key and fingerprint."""
+    from . import identity as _identity
+    paths = _get_paths(ctx.obj["path"])
+    ident = _identity.load_registered_agent(paths.root, agent_id)
+    if ident is None:
+        click.echo(f"No registered identity for '{agent_id}'.", err=True)
+        sys.exit(1)
+    click.echo(f"agent_id:    {ident.agent_id}")
+    click.echo(f"algorithm:   {ident.algorithm}")
+    click.echo(f"fingerprint: {ident.fingerprint}")
+    click.echo(f"public_key:  {ident.public_key}")
+    click.echo(f"created:     {ident.created}")
+
+
+# ---------------------------------------------------------------------------
 # swarm configure
 # ---------------------------------------------------------------------------
 

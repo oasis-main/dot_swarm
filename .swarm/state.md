@@ -1,8 +1,8 @@
 # State — dot_swarm
 
-**Last touched**: 2026-07-17T15:37Z by claude-code
-**Current focus**: Fix broken MCP server — heal ImportError + zero test coverage
-**Active items**: SWC-047
+**Last touched**: 2026-07-17T15:43Z by claude-code
+**Current focus**: Per-agent Ed25519 identity — the real "message signing" primitive
+**Active items**: SWC-048
 **Blockers**: PyPI Trusted Publishing not yet configured (manual step for SWC-003)
 **Ready for pickup**: SWC-003, SWC-004, SWC-005, SWC-006, SWC-007, SWC-008, SWC-009, SWC-021, SWC-024, SWC-032, SWC-033, SWC-043, SWC-045
 
