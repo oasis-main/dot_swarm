@@ -67,7 +67,7 @@ def test_reply_to_unknown_comment_id_still_recorded(swarm):
 def test_malformed_line_is_skipped_not_fatal(swarm):
     _comments.add_comment(swarm, "SWC-001", "house", "good comment")
     path = swarm.root / "comments" / "SWC-001.jsonl"
-    with path.open("a") as fh:
+    with path.open("a", encoding="utf-8") as fh:
         fh.write("{not valid json\n")
     _comments.add_comment(swarm, "SWC-001", "house", "another good one")
 

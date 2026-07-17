@@ -283,12 +283,31 @@ def migrate(ctx: click.Context, dry_run: bool, all_divisions: bool, depth: int) 
 
 @cli.command()
 @click.option("--all", "show_all", is_flag=True, help="Show full queue")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON for agent scripts")
 @click.pass_context
-def status(ctx: click.Context, show_all: bool) -> None:
+def status(ctx: click.Context, show_all: bool, as_json: bool) -> None:
     """Show current state and next available work items."""
+    import json as _json
     paths = _get_paths(ctx.obj["path"])
     state = read_state(paths)
     active, pending, done = read_queue(paths)
+
+    if as_json:
+        click.echo(_json.dumps({
+            "name": paths.root.parent.name,
+            "state": {k: state.get(k) for k in
+                      ["Last touched", "Current focus", "Active items",
+                       "Blockers", "Handoff note"]},
+            "counts": {"active": len(active), "pending": len(pending), "done": len(done)},
+            "active": [{"id": i.id, "description": i.description,
+                        "state": i.state.value, "claimed_by": i.claimed_by}
+                       for i in active],
+            "pending": [{"id": i.id, "description": i.description,
+                         "priority": i.priority.value, "depends": i.depends,
+                         "supersedes": i.supersedes, "duplicates": i.duplicates}
+                        for i in (pending if show_all else pending[:5])],
+        }, indent=2))
+        return
 
     name = paths.root.parent.name
     click.echo(f"\n{'─' * 60}")
@@ -338,7 +357,9 @@ def ready(ctx: click.Context, as_json: bool) -> None:
     if as_json:
         click.echo(_json.dumps([
             {"id": i.id, "description": i.description,
-             "priority": i.priority.value, "project": i.project}
+             "priority": i.priority.value, "project": i.project,
+             "depends": i.depends, "supersedes": i.supersedes,
+             "duplicates": i.duplicates, "refs": i.refs}
             for i in items
         ], indent=2))
         return
@@ -477,11 +498,16 @@ def done(ctx: click.Context, item_id: str, agent: str | None, note: str,
 @click.option("--project", default="misc")
 @click.option("--notes", default="")
 @click.option("--refs", default="", help="Comma-separated refs e.g. 'oasis-x/.swarm/queue.md#ORG-001'")
-@click.option("--depends", default="", help="Comma-separated item IDs")
+@click.option("--depends", default="", help="Comma-separated item IDs this blocks on")
+@click.option("--supersedes", default="", help="Comma-separated item IDs this replaces")
+@click.option("--duplicates", default="", help="Comma-separated item IDs this is a duplicate of")
+@click.option("--hash-id", "hash_id", is_flag=True,
+              help="Use a beads-style sw-XXXX hash ID instead of DIVISION-NNN (avoids merge collisions)")
 @click.option("--code", default=None, help="Division code override")
 @click.pass_context
 def add(ctx: click.Context, description: str, priority: str, project: str,
-        notes: str, refs: str, depends: str, code: str | None) -> None:
+        notes: str, refs: str, depends: str, supersedes: str, duplicates: str,
+        hash_id: bool, code: str | None) -> None:
     """Add a new work item to the queue."""
     paths = _get_paths(ctx.obj["path"])
     division_code = code or _division_code_from_paths(paths)
@@ -494,6 +520,9 @@ def add(ctx: click.Context, description: str, priority: str, project: str,
         notes=notes,
         refs=[r.strip() for r in refs.split(",") if r.strip()],
         depends=[d.strip() for d in depends.split(",") if d.strip()],
+        supersedes=[s.strip() for s in supersedes.split(",") if s.strip()],
+        duplicates=[d.strip() for d in duplicates.split(",") if d.strip()],
+        hash_id=hash_id,
     )
     click.echo(f"Added [{item.id}] ({priority}) {description}")
 
@@ -698,7 +727,7 @@ def explore(ctx: click.Context, depth: int) -> None:
                 focus = focus[:47] + "..."
 
             # Crawl coverage: context.md contains a Directory Map?
-            crawled = "✓" if paths.context.exists() and "## Directory Map" in paths.context.read_text() else "·"
+            crawled = "✓" if paths.context.exists() and "## Directory Map" in paths.context.read_text(encoding='utf-8') else "·"
 
             count = f"({len(active)} active, {len(pending)} pending)"
 
@@ -976,7 +1005,7 @@ def federation_export_id(ctx: click.Context, out: str | None) -> None:
         raise SystemExit(1)
     text = __import__("json").dumps(identity, indent=2)
     if out:
-        Path(out).write_text(text)
+        Path(out).write_text(text, encoding='utf-8')
         click.echo(f"✓ Identity written to {out}")
     else:
         click.echo(text)
@@ -1123,7 +1152,7 @@ def federation_apply(ctx: click.Context, message_file: str, yes: bool) -> None:
 
     try:
         import json as _json
-        data = _json.loads(msg_path.read_text())
+        data = _json.loads(msg_path.read_text(encoding='utf-8'))
     except Exception as exc:
         click.echo(f"Error reading message: {exc}", err=True)
         raise SystemExit(1)
@@ -1616,7 +1645,7 @@ def gui(ctx: click.Context, port: int, open_browser: bool) -> None:
     click.echo("Press Ctrl+C to stop.\n")
     
     if open_browser:
-        Thread(target=lambda: webbrowser.open(f"http://localhost:{port}")).start()
+        Thread(target=lambda: webbrowser.open(f"http://localhost:{port}", encoding='utf-8')).start()
 
     with socketserver.TCPServer(("", port), SwarmHandler) as httpd:
         try:
@@ -1789,7 +1818,7 @@ def unblock_cmd(ctx: click.Context, item_id: str, reclaim: bool, agent_id: str |
         raise SystemExit(1)
 
     # Read raw queue, replace the status stamp
-    raw = paths.queue.read_text()
+    raw = paths.queue.read_text(encoding='utf-8')
 
     # Replace [BLOCKED · ...] with [OPEN] or claim stamp
     import re
@@ -1832,9 +1861,12 @@ def unblock_cmd(ctx: click.Context, item_id: str, reclaim: bool, agent_id: str |
               type=click.Choice(["critical", "high", "medium", "low"]),
               help="Filter by priority")
 @click.option("--project", default=None, help="Filter by project")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON for agent scripts")
 @click.pass_context
-def ls_cmd(ctx: click.Context, section: str, priority: str | None, project: str | None) -> None:
+def ls_cmd(ctx: click.Context, section: str, priority: str | None,
+           project: str | None, as_json: bool) -> None:
     """List work items from the queue."""
+    import json as _json
     paths = _get_paths(ctx.obj["path"])
     active, pending, done = read_queue(paths)
 
@@ -1846,17 +1878,38 @@ def ls_cmd(ctx: click.Context, section: str, priority: str | None, project: str 
     if section in ("done", "all"):
         sections.append(("Done", done))
 
+    def _filter(items):
+        out = items
+        if priority:
+            out = [i for i in out if i.priority.value == priority]
+        if project:
+            out = [i for i in out if i.project == project]
+        return out
+
+    if as_json:
+        payload = {
+            label.lower(): [
+                {
+                    "id": i.id, "state": i.state.value, "description": i.description,
+                    "priority": i.priority.value, "project": i.project,
+                    "claimed_by": i.claimed_by, "depends": i.depends,
+                    "supersedes": i.supersedes, "duplicates": i.duplicates,
+                    "refs": i.refs,
+                }
+                for i in _filter(items)
+            ]
+            for label, items in sections
+        }
+        click.echo(_json.dumps(payload, indent=2))
+        return
+
     STATE_ICON = {
         "OPEN": "[ ]", "CLAIMED": "[>]", "PARTIAL": "[~]",
         "BLOCKED": "[!]", "DONE": "[x]", "CANCELLED": "[-]",
     }
 
     for label, items in sections:
-        filtered = items
-        if priority:
-            filtered = [i for i in filtered if i.priority.value == priority]
-        if project:
-            filtered = [i for i in filtered if i.project == project]
+        filtered = _filter(items)
         if filtered:
             click.echo(f"\n## {label}")
             for item in filtered:
@@ -2348,7 +2401,7 @@ def _repo_gitignore(start: Path) -> Path | None:
 def _trail_is_invisible(gitignore: Path) -> bool:
     if not gitignore.exists():
         return False
-    lines = [l.strip() for l in gitignore.read_text().splitlines()]
+    lines = [l.strip() for l in gitignore.read_text(encoding='utf-8').splitlines()]
     return ".swarm/" in lines or ".swarm" in lines
 
 
@@ -2356,7 +2409,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
     """Add or remove .swarm/ from .gitignore. Returns a human-readable action."""
     lines: list[str] = []
     if gitignore.exists():
-        lines = gitignore.read_text().splitlines()
+        lines = gitignore.read_text(encoding='utf-8').splitlines()
 
     entries = {".swarm/", ".swarm"}
     if invisible:
@@ -2365,7 +2418,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
         lines.append("")
         lines.append("# dot_swarm trail — remove to make visible (swarm trail visible)")
         lines.append(".swarm/")
-        gitignore.write_text("\n".join(lines) + "\n")
+        gitignore.write_text("\n".join(lines) + "\n", encoding='utf-8')
         return "trail hidden (.swarm/ added to .gitignore)"
     else:
         new_lines = []
@@ -2387,7 +2440,7 @@ def _set_trail_visibility(gitignore: Path, invisible: bool) -> str:
             new_lines.append(line)
         if not removed:
             return "already visible (no .swarm/ entry found)"
-        gitignore.write_text("\n".join(new_lines) + "\n")
+        gitignore.write_text("\n".join(new_lines) + "\n", encoding='utf-8')
         return "trail visible (.swarm/ removed from .gitignore)"
 
 
@@ -3302,7 +3355,7 @@ def session_cmd(ctx: click.Context, interface: str, prompt: str | None) -> None:
     bin_path = shutil.which(interface)
 
     # Session banner
-    state_text  = paths.state.read_text().strip() if paths.state.exists() else ""
+    state_text  = paths.state.read_text(encoding='utf-8').strip() if paths.state.exists() else ""
     focus_line  = next((l for l in state_text.splitlines() if "Current focus" in l), "")
     click.echo(f"  Division : {div_root.name}")
     if focus_line:
@@ -3327,7 +3380,8 @@ def session_cmd(ctx: click.Context, interface: str, prompt: str | None) -> None:
             ctx_file.write_text(
                 f"# dot_swarm Session Context — {div_root.name}\n\n"
                 f"Read this file to understand the current state, then assist the user.\n\n"
-                f"{context}\n"
+                f"{context}\n",
+                encoding='utf-8',
             )
             rel = ctx_file.relative_to(div_root)
             click.echo(f"  Context written to {rel}")
@@ -3472,7 +3526,7 @@ def _install_drift_check_workflow(repo_root: Path) -> None:
         )
         if template_path.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(template_path.read_text())
+            dest.write_text(template_path.read_text(encoding='utf-8'), encoding='utf-8')
             click.echo("  Created .github/workflows/swarm-drift-check.yml")
             return
     except Exception:
@@ -3498,7 +3552,7 @@ def _find_git_root() -> Path | None:
 
 def _create_if_missing(path: Path, content: str) -> None:
     if not path.exists():
-        path.write_text(content)
+        path.write_text(content, encoding='utf-8')
         click.echo(f"  Created {path.name}")
     else:
         click.echo(f"  Skipped {path.name} (already exists)")
@@ -3529,13 +3583,13 @@ def _ensure_gitignore(swarm_dir: Path) -> None:
     gitignore = swarm_dir / ".gitignore"
     needed = [".signing_key", ".swarm_key", ".swarm_key.old", "quarantine/", "trail.log"]
     if gitignore.exists():
-        existing = gitignore.read_text()
+        existing = gitignore.read_text(encoding='utf-8')
         missing = [line for line in needed if line not in existing]
         if missing:
-            with gitignore.open("a") as fh:
+            with gitignore.open("a", encoding='utf-8') as fh:
                 fh.write("\n" + "\n".join(missing) + "\n")
     else:
-        gitignore.write_text("\n".join(needed) + "\n")
+        gitignore.write_text("\n".join(needed) + "\n", encoding='utf-8')
 
 
 def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:

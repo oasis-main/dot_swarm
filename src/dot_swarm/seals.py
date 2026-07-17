@@ -80,7 +80,7 @@ def _load_key(swarm_path: Path) -> bytes | None:
     key_file = swarm_path / SIGNING_KEY_FILE
     if not key_file.exists():
         return None
-    return key_file.read_text().strip().encode()
+    return key_file.read_text(encoding='utf-8').strip().encode()
 
 
 def _normalize(content: str) -> str:

@@ -15,8 +15,10 @@ from dot_swarm.operations import (
     claim_item,
     done_item,
     next_item_id,
+    next_hash_id,
     partial_item,
     read_queue,
+    ready_items,
     read_state,
     write_state,
     _division_code_from_paths,
@@ -36,15 +38,17 @@ def swarm_dir(tmp_path: Path) -> SwarmPaths:
     swarm.mkdir()
 
     (swarm / "queue.md").write_text(
-        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n"
+        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n",
+        encoding='utf-8',
     )
     (swarm / "state.md").write_text(
         "# State\n\n**Last touched**: 2026-01-01T00:00Z by test\n"
-        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n"
+        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n",
+        encoding='utf-8',
     )
-    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n")
-    (swarm / "context.md").write_text("# Context\n\n## What This Division Is\n\nTest.\n")
-    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\nTest bootstrap.\n")
+    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n", encoding='utf-8')
+    (swarm / "context.md").write_text("# Context\n\n## What This Division Is\n\nTest.\n", encoding='utf-8')
+    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\nTest bootstrap.\n", encoding='utf-8')
 
     return SwarmPaths.find(div_root)
 
@@ -173,7 +177,7 @@ def test_write_and_read_state(swarm_dir: SwarmPaths) -> None:
 
 def test_append_memory(swarm_dir: SwarmPaths) -> None:
     append_memory(swarm_dir, "messaging", "Chose NATS over Kafka", "lower latency")
-    content = swarm_dir.memory.read_text()
+    content = swarm_dir.memory.read_text(encoding='utf-8')
     assert "NATS" in content
     assert "Kafka" in content
 
@@ -181,7 +185,7 @@ def test_append_memory(swarm_dir: SwarmPaths) -> None:
 def test_memory_is_append_only(swarm_dir: SwarmPaths) -> None:
     append_memory(swarm_dir, "t1", "First entry", "reason one")
     append_memory(swarm_dir, "t2", "Second entry", "reason two")
-    content = swarm_dir.memory.read_text()
+    content = swarm_dir.memory.read_text(encoding='utf-8')
     assert "First entry" in content
     assert "Second entry" in content
 
@@ -197,8 +201,80 @@ def test_audit_flags_stale_items(swarm_dir: SwarmPaths) -> None:
     item_id = pending[0].id
     claim_item(swarm_dir, item_id, "agent-x")
     # Backdate the queue file's mtime to simulate staleness
-    raw = swarm_dir.queue.read_text()
+    raw = swarm_dir.queue.read_text(encoding='utf-8')
     backdated = raw.replace("2026", "2024")  # crude backdating
-    swarm_dir.queue.write_text(backdated)
+    swarm_dir.queue.write_text(backdated, encoding='utf-8')
     stale = audit(swarm_dir, stale_hours=1)
     assert len(stale) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Hash IDs (beads-style merge-collision-resistant IDs)
+# ---------------------------------------------------------------------------
+
+def test_hash_id_format(swarm_dir: SwarmPaths) -> None:
+    item = add_item(swarm_dir, "needs a hash id", hash_id=True)
+    assert item.id.startswith("sw-")
+    assert len(item.id) >= 7  # "sw-" + at least 4 hex
+
+
+def test_hash_id_round_trips_through_queue(swarm_dir: SwarmPaths) -> None:
+    item = add_item(swarm_dir, "round-trip me", hash_id=True)
+    _, pending, _ = read_queue(swarm_dir)
+    parsed = next(i for i in pending if i.id == item.id)
+    assert parsed.description == "round-trip me"
+
+
+def test_hash_id_lifecycle(swarm_dir: SwarmPaths) -> None:
+    """Hash IDs work through claim → done like DIVISION-NNN IDs."""
+    item = add_item(swarm_dir, "lifecycle", hash_id=True)
+    claim_item(swarm_dir, item.id, "agent-h")
+    done_item(swarm_dir, item.id, "agent-h", note="done")
+    _, _, done = read_queue(swarm_dir)
+    assert any(i.id == item.id for i in done)
+
+
+def test_next_hash_id_avoids_collisions(swarm_dir: SwarmPaths) -> None:
+    ids = {next_hash_id(swarm_dir) for _ in range(5)}
+    # next_hash_id reads the queue, so all five are equal until persisted —
+    # what we actually want is that add_item persistence avoids reuse.
+    items = [add_item(swarm_dir, f"item {n}", hash_id=True) for n in range(5)]
+    assert len({i.id for i in items}) == 5
+
+
+# ---------------------------------------------------------------------------
+# supersedes / duplicates edges
+# ---------------------------------------------------------------------------
+
+def test_supersedes_field_round_trips(swarm_dir: SwarmPaths) -> None:
+    a = add_item(swarm_dir, "old approach")
+    b = add_item(swarm_dir, "new approach", supersedes=[a.id])
+    _, pending, _ = read_queue(swarm_dir)
+    parsed_b = next(i for i in pending if i.id == b.id)
+    assert parsed_b.supersedes == [a.id]
+
+
+def test_duplicates_field_round_trips(swarm_dir: SwarmPaths) -> None:
+    a = add_item(swarm_dir, "canonical")
+    b = add_item(swarm_dir, "looks the same", duplicates=[a.id])
+    _, pending, _ = read_queue(swarm_dir)
+    parsed_b = next(i for i in pending if i.id == b.id)
+    assert parsed_b.duplicates == [a.id]
+
+
+def test_ready_skips_duplicates(swarm_dir: SwarmPaths) -> None:
+    a = add_item(swarm_dir, "canonical")
+    add_item(swarm_dir, "dupe", duplicates=[a.id])
+    ready = ready_items(swarm_dir)
+    descs = {i.description for i in ready}
+    assert "canonical" in descs
+    assert "dupe" not in descs
+
+
+def test_ready_skips_superseded(swarm_dir: SwarmPaths) -> None:
+    a = add_item(swarm_dir, "old approach")
+    add_item(swarm_dir, "new approach", supersedes=[a.id])
+    ready = ready_items(swarm_dir)
+    descs = {i.description for i in ready}
+    assert "old approach" not in descs
+    assert "new approach" in descs

@@ -23,10 +23,11 @@ def _legacy_swarm(tmp_path):
         "- [>] [LEG-001] [CLAIMED · agent-A · 2026-04-01T10:00Z] Test item\n"
         "      priority: high | project: misc\n\n"
         "## Pending\n\n"
-        "## Done\n\n"
+        "## Done\n\n",
+        encoding='utf-8',
     )
     # legacy gitignore — only the original signing-key entry
-    (s / ".gitignore").write_text(".signing_key\nquarantine/\ntrail.log\n")
+    (s / ".gitignore").write_text(".signing_key\nquarantine/\ntrail.log\n", encoding='utf-8')
     # legacy federation/ — has trusted_peers + inbox + outbox but no strangers/
     fed = s / "federation"
     (fed / "trusted_peers").mkdir(parents=True)
@@ -42,8 +43,8 @@ def test_migrate_creates_missing_layout(tmp_path):
     assert (s / "claims").is_dir()
     assert (s / "federation" / "strangers").is_dir()
     assert (s / "federation" / "strangers" / "rejected").is_dir()
-    assert ".swarm_key" in (s / ".gitignore").read_text()
-    assert ".swarm_key.old" in (s / ".gitignore").read_text()
+    assert ".swarm_key" in (s / ".gitignore").read_text(encoding='utf-8')
+    assert ".swarm_key.old" in (s / ".gitignore").read_text(encoding='utf-8')
 
     summary = " | ".join(report.actions)
     assert "claims/" in summary
@@ -75,7 +76,7 @@ def test_migrate_dry_run_writes_nothing(tmp_path):
     # Layout still legacy
     assert not (s / "claims").is_dir()
     assert not (s / "federation" / "strangers").is_dir()
-    assert ".swarm_key" not in (s / ".gitignore").read_text()
+    assert ".swarm_key" not in (s / ".gitignore").read_text(encoding='utf-8')
     # Report says what would happen
     assert report.actions == []
     assert any("claims/" in n for n in report.needed)
@@ -106,12 +107,13 @@ def test_migrate_creates_gitignore_if_missing(tmp_path):
     s = tmp_path / ".swarm"
     s.mkdir()
     (s / "queue.md").write_text(
-        "# Queue — minimal\n\n## Active\n\n## Pending\n\n## Done\n\n"
+        "# Queue — minimal\n\n## Active\n\n## Pending\n\n## Done\n\n",
+        encoding='utf-8',
     )
     # No gitignore at all
     report = migrate_swarm(s, dry_run=False)
     assert (s / ".gitignore").exists()
-    contents = (s / ".gitignore").read_text()
+    contents = (s / ".gitignore").read_text(encoding='utf-8')
     for entry in (".signing_key", ".swarm_key", ".swarm_key.old", "trail.log"):
         assert entry in contents
     assert any("gitignore" in a for a in report.actions)

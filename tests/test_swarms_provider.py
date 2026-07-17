@@ -54,11 +54,11 @@ MINIMAL_STATE = """\
 def swarm_dir(tmp_path: Path) -> Path:
     swarm = tmp_path / ".swarm"
     swarm.mkdir()
-    (swarm / "queue.md").write_text(MINIMAL_QUEUE)
-    (swarm / "state.md").write_text(MINIMAL_STATE)
-    (swarm / "memory.md").write_text("# Memory\n\n")
-    (swarm / "context.md").write_text("# Context\n\nTest project.\n")
-    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\n")
+    (swarm / "queue.md").write_text(MINIMAL_QUEUE, encoding='utf-8')
+    (swarm / "state.md").write_text(MINIMAL_STATE, encoding='utf-8')
+    (swarm / "memory.md").write_text("# Memory\n\n", encoding='utf-8')
+    (swarm / "context.md").write_text("# Context\n\nTest project.\n", encoding='utf-8')
+    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n\n", encoding='utf-8')
     (swarm / "workflows").mkdir()
     return swarm
 

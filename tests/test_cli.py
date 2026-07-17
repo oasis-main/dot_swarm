@@ -20,15 +20,17 @@ def _make_swarm(tmp_path: Path, name: str = "oasis-cloud") -> Path:
     swarm = div / ".swarm"
     swarm.mkdir()
     (swarm / "queue.md").write_text(
-        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n"
+        "# Queue\n\n## Active\n\n(none)\n\n## Pending\n\n(none)\n\n## Done\n\n(none)\n",
+        encoding='utf-8',
     )
     (swarm / "state.md").write_text(
         "# State\n\n**Last touched**: 2026-01-01T00:00Z by test\n"
-        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n"
+        "**Current focus**: testing\n**Active items**: (none)\n**Blockers**: (none)\n",
+        encoding='utf-8',
     )
-    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n")
-    (swarm / "context.md").write_text("# Context\n")
-    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n")
+    (swarm / "memory.md").write_text("# Memory\n\n(empty)\n", encoding='utf-8')
+    (swarm / "context.md").write_text("# Context\n", encoding='utf-8')
+    (swarm / "BOOTSTRAP.md").write_text("# Bootstrap\n", encoding='utf-8')
     return div
 
 
@@ -56,7 +58,7 @@ def test_add_creates_item(tmp_path: Path) -> None:
         "--priority", "high", "--project", "infra",
     ])
     assert result.exit_code == 0
-    queue = (div / ".swarm" / "queue.md").read_text()
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
     assert "Fix the thing" in queue
     assert "high" in queue
 
@@ -70,7 +72,7 @@ def test_claim_and_done(tmp_path: Path) -> None:
     runner = CliRunner()
 
     runner.invoke(cli, ["--path", str(div), "add", "Task A"])
-    queue = (div / ".swarm" / "queue.md").read_text()
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
     # Extract item ID (CLD-001)
     import re
     m = re.search(r'\[(\w+-\d+)\]', queue)
@@ -79,11 +81,11 @@ def test_claim_and_done(tmp_path: Path) -> None:
 
     result = runner.invoke(cli, ["--path", str(div), "claim", item_id, "--agent", "test-agent"])
     assert result.exit_code == 0
-    assert "CLAIMED" in (div / ".swarm" / "queue.md").read_text()
+    assert "CLAIMED" in (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
 
     result = runner.invoke(cli, ["--path", str(div), "done", item_id, "--agent", "test-agent"])
     assert result.exit_code == 0
-    assert "DONE" in (div / ".swarm" / "queue.md").read_text()
+    assert "DONE" in (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +168,88 @@ def test_handoff_produces_output(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Hash IDs + new edge flags
+# ---------------------------------------------------------------------------
+
+def test_add_with_hash_id(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--path", str(div), "add", "hashy", "--hash-id"])
+    assert result.exit_code == 0
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
+    import re
+    assert re.search(r"\[sw-[a-f0-9]+\]", queue), queue
+
+
+def test_add_with_supersedes_and_duplicates(tmp_path: Path) -> None:
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "old"])
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
+    import re
+    old_id = re.search(r"\[(\w+-\d+)\]", queue).group(1)
+    result = runner.invoke(cli, [
+        "--path", str(div), "add", "new",
+        "--supersedes", old_id,
+    ])
+    assert result.exit_code == 0
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
+    assert f"supersedes: {old_id}" in queue
+
+
+def test_ready_json_includes_edge_fields(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "ready", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert isinstance(data, list) and data
+    assert "supersedes" in data[0] and "duplicates" in data[0]
+
+
+def test_ls_json_output(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "ls", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "pending" in data
+    assert data["pending"][0]["description"] == "alpha"
+
+
+def test_status_json_output(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "alpha"])
+    result = runner.invoke(cli, ["--path", str(div), "status", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["counts"]["pending"] >= 1
+
+
+def test_ready_hides_superseded_via_cli(tmp_path: Path) -> None:
+    import json
+    div = _make_swarm(tmp_path)
+    runner = CliRunner()
+    runner.invoke(cli, ["--path", str(div), "add", "old"])
+    queue = (div / ".swarm" / "queue.md").read_text(encoding='utf-8')
+    import re
+    old_id = re.search(r"\[(\w+-\d+)\]", queue).group(1)
+    runner.invoke(cli, ["--path", str(div), "add", "new", "--supersedes", old_id])
+
+    result = runner.invoke(cli, ["--path", str(div), "ready", "--json"])
+    data = json.loads(result.output)
+    descs = {i["description"] for i in data}
+    assert "old" not in descs
+    assert "new" in descs
+
+
+# ---------------------------------------------------------------------------
 # swarm comment / comments (SWC-051)
 # ---------------------------------------------------------------------------
 
@@ -197,7 +281,7 @@ def test_comment_reply_threading_via_cli(tmp_path: Path) -> None:
 
     runner.invoke(cli, ["--path", str(div), "comment", "SWC-001", "question?", "--agent", "house"])
     import re
-    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text()
+    thread_file = (div / ".swarm" / "comments" / "SWC-001.jsonl").read_text(encoding="utf-8")
     parent_id = re.search(r'"comment_id":"([a-f0-9]+)"', thread_file).group(1)
 
     result = runner.invoke(cli, [
@@ -247,7 +331,7 @@ def test_mail_read_marks_read_and_disappears_from_inbox(tmp_path: Path) -> None:
     import re
     inbox_dir = div / ".swarm" / "mailbox" / "house" / "inbox"
     msg_file = next(inbox_dir.glob("*.json"))
-    msg_id = re.search(r'"msg_id":\s*"([a-f0-9]+)"', msg_file.read_text()).group(1)
+    msg_id = re.search(r'"msg_id":\s*"([a-f0-9]+)"', msg_file.read_text(encoding="utf-8")).group(1)
 
     result = runner.invoke(cli, ["--path", str(div), "mail", "read", "house", msg_id])
     assert result.exit_code == 0

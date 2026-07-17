@@ -134,7 +134,7 @@ def trust_peer(
     We always derive peer identity from the stored fingerprint, never
     from whatever the peer claims in a message header.
     """
-    raw = json.loads(peer_identity_path.read_text())
+    raw = json.loads(peer_identity_path.read_text(encoding='utf-8'))
     fingerprint = raw.get("fingerprint", "")
     if not fingerprint:
         raise ValueError(
@@ -172,7 +172,7 @@ def list_peers(swarm_path: Path) -> list[FederationPeer]:
     result: list[FederationPeer] = []
     for f in sorted(peers_dir.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding='utf-8'))
             result.append(FederationPeer(**data))
         except Exception:
             pass
@@ -185,7 +185,7 @@ def get_peer(swarm_path: Path, fingerprint: str) -> FederationPeer | None:
     if not peer_file.exists():
         return None
     try:
-        return FederationPeer(**json.loads(peer_file.read_text()))
+        return FederationPeer(**json.loads(peer_file.read_text(encoding='utf-8')))
     except Exception:
         return None
 
@@ -276,7 +276,7 @@ def write_outbox(
         raise FileNotFoundError(
             f"No signing key at {key_file}. Run 'swarm init' first."
         )
-    key_bytes = key_file.read_text().strip().encode()
+    key_bytes = key_file.read_text(encoding='utf-8').strip().encode()
 
     identity = load_identity(swarm_path)
     if identity is None:
@@ -319,7 +319,7 @@ def read_inbox(swarm_path: Path) -> list[FederationMessage]:
     messages: list[FederationMessage] = []
     for f in sorted(inbox_dir.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding='utf-8'))
             messages.append(FederationMessage(
                 version=data.get("version", "1"),
                 timestamp=data["timestamp"],
@@ -368,7 +368,7 @@ def apply_inbox_message(
     Returns {"ok": bool, "reason": str, "result": any, "quarantined": bool}
     """
     try:
-        data = json.loads(message_file.read_text())
+        data = json.loads(message_file.read_text(encoding='utf-8'))
     except Exception as exc:
         return {"ok": False, "reason": f"parse error: {exc}", "result": None, "quarantined": False}
 
@@ -471,7 +471,7 @@ def list_strangers(swarm_path: Path) -> list[dict]:
         if f.parent.name == "rejected":
             continue
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding='utf-8'))
         except Exception:
             data = {}
         reason_path = f.with_suffix(f.suffix + ".reason.txt")
@@ -493,7 +493,7 @@ def read_stranger(swarm_path: Path, filename: str) -> dict | None:
     if not f.exists():
         return None
     try:
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding='utf-8'))
     except Exception:
         return None
 
@@ -519,7 +519,7 @@ def promote_stranger(
     if not src.exists():
         raise FileNotFoundError(f"No stranger message at {src}")
 
-    data = json.loads(src.read_text())
+    data = json.loads(src.read_text(encoding='utf-8'))
     fingerprint = data.get("from_fingerprint", "")
     if not fingerprint:
         raise ValueError(f"Stranger message {filename!r} has no from_fingerprint")
@@ -603,7 +603,7 @@ def triage_inbox(swarm_path: Path) -> dict:
     trusted = quarantined = errors = 0
     for f in sorted(inbox.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding='utf-8'))
         except Exception:
             errors += 1
             continue
@@ -654,7 +654,7 @@ def _policy_allows(swarm_path: Path, intent: str) -> bool:
     policy_file = swarm_path / POLICY_FILE
     if not policy_file.exists():
         return intent in ALL_INTENTS
-    content = policy_file.read_text()
+    content = policy_file.read_text(encoding='utf-8')
     return f"disabled: {intent}" not in content
 
 

@@ -470,12 +470,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     try:
         if name == "swarm_bootstrap":
             paths = _resolve_paths(path)
-            content = paths.bootstrap.read_text() if paths.bootstrap.exists() else "(no BOOTSTRAP.md found)"
+            content = paths.bootstrap.read_text(encoding='utf-8') if paths.bootstrap.exists() else "(no BOOTSTRAP.md found)"
             return [types.TextContent(type="text", text=content)]
 
         elif name == "swarm_context":
             paths = _resolve_paths(path)
-            content = paths.context.read_text() if paths.context.exists() else "(no context.md found)"
+            content = paths.context.read_text(encoding='utf-8') if paths.context.exists() else "(no context.md found)"
             return [types.TextContent(type="text", text=content)]
 
         elif name == "swarm_state":
@@ -493,7 +493,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 }
                 mapped = {key_map.get(k, k): v for k, v in fields.items()}
                 write_state(paths, mapped)
-            content = paths.state.read_text() if paths.state.exists() else "(no state.md found)"
+            content = paths.state.read_text(encoding='utf-8') if paths.state.exists() else "(no state.md found)"
             return [types.TextContent(type="text", text=content)]
 
         elif name == "swarm_queue":

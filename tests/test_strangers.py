@@ -35,7 +35,7 @@ def stranger_message(tmp_path):
         "signature": "fake",
     }
     f = tmp_path / "msg_from_alien.json"
-    f.write_text(json.dumps(msg))
+    f.write_text(json.dumps(msg), encoding='utf-8')
     return f
 
 

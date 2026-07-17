@@ -43,7 +43,7 @@ def generate_identity(swarm_path: Path) -> dict:
     id_file = swarm_path / IDENTITY_FILE
 
     if id_file.exists() and key_file.exists():
-        return json.loads(id_file.read_text())
+        return json.loads(id_file.read_text(encoding='utf-8'))
 
     key_hex = secrets.token_hex(32)                                       # 256-bit
     fingerprint = hashlib.sha256(key_hex.encode()).hexdigest()[:16]
@@ -56,8 +56,8 @@ def generate_identity(swarm_path: Path) -> dict:
         "created": datetime.now(timezone.utc).isoformat(),
     }
 
-    id_file.write_text(json.dumps(identity, indent=2))
-    key_file.write_text(key_hex)
+    id_file.write_text(json.dumps(identity, indent=2), encoding='utf-8')
+    key_file.write_text(key_hex, encoding='utf-8')
     return identity
 
 
@@ -67,7 +67,7 @@ def load_identity(swarm_path: Path) -> dict | None:
     if not id_file.exists():
         return None
     try:
-        return json.loads(id_file.read_text())
+        return json.loads(id_file.read_text(encoding='utf-8'))
     except (json.JSONDecodeError, OSError):
         return None
 
@@ -76,7 +76,7 @@ def _load_key(swarm_path: Path) -> bytes | None:
     key_file = swarm_path / SIGNING_KEY_FILE
     if not key_file.exists():
         return None
-    return key_file.read_text().strip().encode()
+    return key_file.read_text(encoding='utf-8').strip().encode()
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ def load_blocked_peers(swarm_path: Path) -> list[str]:
     if not blocked_file.exists():
         return []
     try:
-        return json.loads(blocked_file.read_text())
+        return json.loads(blocked_file.read_text(encoding='utf-8'))
     except (json.JSONDecodeError, OSError):
         return []
 
@@ -244,7 +244,7 @@ def block_peer(swarm_path: Path, fingerprint: str) -> None:
     blocked = load_blocked_peers(swarm_path)
     if fingerprint not in blocked:
         blocked.append(fingerprint)
-    (swarm_path / BLOCKED_PEERS_FILE).write_text(json.dumps(blocked, indent=2))
+    (swarm_path / BLOCKED_PEERS_FILE).write_text(json.dumps(blocked, indent=2), encoding='utf-8')
 
 
 def is_blocked(swarm_path: Path, fingerprint: str) -> bool:

@@ -74,7 +74,7 @@ def test_fingerprint_derived_from_key(swarm_dir: Path) -> None:
     """Fingerprint must be stable and derived from the key, not random."""
     import hashlib
     generate_identity(swarm_dir)
-    key_hex = (swarm_dir / SIGNING_KEY_FILE).read_text().strip()
+    key_hex = (swarm_dir / SIGNING_KEY_FILE).read_text(encoding='utf-8').strip()
     expected_fp = hashlib.sha256(key_hex.encode()).hexdigest()[:16]
     identity = load_identity(swarm_dir)
     assert identity["fingerprint"] == expected_fp
@@ -162,9 +162,9 @@ def test_verify_trail_detects_tamper(swarm_dir: Path) -> None:
 
     # Manually corrupt the trail
     trail_file = swarm_dir / TRAIL_FILE
-    line = json.loads(trail_file.read_text().strip())
+    line = json.loads(trail_file.read_text(encoding='utf-8').strip())
     line["agent_id"] = "evil-agent"           # tamper
-    trail_file.write_text(json.dumps(line) + "\n")
+    trail_file.write_text(json.dumps(line) + "\n", encoding='utf-8')
 
     tampered = verify_trail(swarm_dir)
     assert len(tampered) == 1

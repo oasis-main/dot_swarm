@@ -27,6 +27,7 @@ agent's private key can produce a signature that verifies as them.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,14 @@ from . import identity as _identity
 MAILBOX_DIR = "mailbox"
 INBOX = "inbox"
 READ = "read"
+
+# Monotonic per-process tiebreaker for filename ordering (see send_message).
+# datetime.now()'s resolution isn't reliable enough on its own: some
+# platforms' clocks (observed on Windows CI) tick coarser than the gap
+# between two back-to-back send_message() calls, so two sends can land on
+# the identical microsecond and then sort by msg_id (a content hash) —
+# effectively random — instead of send order.
+_SEQ = itertools.count()
 
 
 @dataclass
@@ -142,18 +151,21 @@ def send_message(
 
     inbox = _inbox_dir(paths, to_agent)
     inbox.mkdir(parents=True, exist_ok=True)
-    # Microsecond-precision sort key for the filename — NOT the same string
-    # as the (second-precision) `timestamp` field above. list_inbox() relies
-    # on lexical filename order for chronological listing; two messages
-    # landing in the same second (routine under test, plausible in a busy
-    # swarm) would otherwise sort by msg_id instead of send order.
-    sort_key = now_dt.strftime("%Y%m%dT%H%M%S%f")
+    # Sort key for the filename — NOT the same string as the (second-
+    # precision) `timestamp` field above. list_inbox() relies on lexical
+    # filename order for chronological listing. The microsecond timestamp
+    # alone isn't sufficient: some platforms' wall clocks (observed on
+    # Windows CI) tick coarser than the gap between two back-to-back
+    # send_message() calls, so a zero-padded, strictly-monotonic per-process
+    # counter is the real ordering guarantee; the timestamp just keeps
+    # filenames human-sortable-by-rough-time across process restarts.
+    sort_key = f"{now_dt.strftime('%Y%m%dT%H%M%S%f')}_{next(_SEQ):09d}"
     dest = inbox / f"{sort_key}_{msg_id}.json"
     suffix = 0
-    while dest.exists():  # collision under a same-microsecond duplicate send
+    while dest.exists():  # collision under a same-tick duplicate send
         suffix += 1
         dest = inbox / f"{sort_key}_{msg_id}_{suffix}.json"
-    dest.write_text(json.dumps(message.to_dict(), indent=2))
+    dest.write_text(json.dumps(message.to_dict(), indent=2), encoding="utf-8")
     return message
 
 
@@ -163,7 +175,7 @@ def _load_dir(d: Path) -> list[tuple[Path, Message]]:
     out = []
     for p in sorted(d.glob("*.json")):
         try:
-            out.append((p, Message.from_dict(json.loads(p.read_text()))))
+            out.append((p, Message.from_dict(json.loads(p.read_text(encoding="utf-8")))))
         except (json.JSONDecodeError, KeyError, OSError):
             continue
     return out

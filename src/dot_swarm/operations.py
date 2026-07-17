@@ -41,6 +41,31 @@ class ClaimLockTimeout(RuntimeError):
     process is actively deciding the same item's claim state."""
 
 
+def _safe_unlink(path: Path) -> None:
+    """Unlink, tolerating both "already gone" and Windows' stricter file-
+    deletion semantics.
+
+    POSIX lets you unlink a path regardless of what else is doing with it
+    at that instant. Windows doesn't: under heavy concurrent create/delete
+    of the SAME lock filename (exactly what many threads racing on one
+    item_id produces — see test_concurrent_claim_item_exactly_one_winner),
+    a delete can transiently collide with another thread's in-flight
+    create and raise PermissionError rather than succeeding or raising
+    FileNotFoundError. A short bounded retry clears it; this is a
+    filesystem quirk, not a lock-correctness issue.
+    """
+    for attempt in range(5):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == 4:
+                return  # leave it — stale-reclaim (30s) cleans it up later
+            time.sleep(0.02)
+
+
 @contextmanager
 def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
     """Exclusive advisory lock scoped to ONE item_id.
@@ -77,10 +102,14 @@ def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_S
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # PermissionError here (Windows only): another thread's create
+            # or delete of this exact filename is in flight — treat it the
+            # same as "lock currently held" and fall through to the same
+            # stale-check / retry path FileExistsError takes.
             try:
                 if time.time() - lock_path.stat().st_mtime > _LOCK_STALE_SECONDS:
-                    lock_path.unlink(missing_ok=True)
+                    _safe_unlink(lock_path)
                     continue
             except OSError:
                 pass  # lock disappeared between the stat and here — fine, retry below
@@ -93,7 +122,7 @@ def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_S
     try:
         yield
     finally:
-        lock_path.unlink(missing_ok=True)
+        _safe_unlink(lock_path)
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +130,7 @@ def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_S
 # ---------------------------------------------------------------------------
 
 SECTION_RE = re.compile(r"^## (Active|Pending|Done)$", re.MULTILINE)
-FIELD_RE = re.compile(r"^\s{6}(?P<key>priority|project|notes|depends|refs|proof|inspect_fails|max_retries): (?P<value>.+)$")
+FIELD_RE = re.compile(r"^\s{6}(?P<key>priority|project|notes|depends|supersedes|duplicates|refs|proof|inspect_fails|max_retries): (?P<value>.+)$")
 
 
 def read_queue(paths: SwarmPaths) -> tuple[list[WorkItem], list[WorkItem], list[WorkItem]]:
@@ -109,7 +138,7 @@ def read_queue(paths: SwarmPaths) -> tuple[list[WorkItem], list[WorkItem], list[
     if not paths.queue.exists():
         return [], [], []
 
-    text = paths.queue.read_text()
+    text = paths.queue.read_text(encoding='utf-8')
     sections = _split_sections(text)
     active = _parse_items(sections.get("Active", ""))
     pending = _parse_items(sections.get("Pending", ""))
@@ -129,7 +158,7 @@ def read_claims(paths: SwarmPaths) -> list[Claim]:
         return []
     for p in paths.claims.glob("*.json"):
         try:
-            data = json.loads(p.read_text())
+            data = json.loads(p.read_text(encoding='utf-8'))
             claims.append(Claim.from_dict(data))
         except (json.JSONDecodeError, KeyError, ValueError):
             continue
@@ -151,7 +180,7 @@ def write_claim(paths: SwarmPaths, claim: Claim) -> Path:
     while p.exists():  # collision under same-second concurrent writes
         suffix += 1
         p = paths.claims / f"{base}_{suffix}.json"
-    p.write_text(json.dumps(claim.to_dict(), indent=2))
+    p.write_text(json.dumps(claim.to_dict(), indent=2), encoding='utf-8')
     return p
 
 
@@ -410,6 +439,10 @@ def _parse_items(section_text: str) -> list[WorkItem]:
                 current_item.notes = value
             elif key == "depends":
                 current_item.depends = [d.strip() for d in value.split(",")]
+            elif key == "supersedes":
+                current_item.supersedes = [d.strip() for d in value.split(",") if d.strip()]
+            elif key == "duplicates":
+                current_item.duplicates = [d.strip() for d in value.split(",") if d.strip()]
             elif key == "refs":
                 current_item.refs = [r.strip() for r in value.split(",")]
             elif key == "proof":
@@ -474,6 +507,27 @@ def next_item_id(paths: SwarmPaths, division_code: str) -> str:
         if m := id_re.match(item.id):
             max_num = max(max_num, int(m.group(1)))
     return f"{division_code}-{max_num + 1:03d}"
+
+
+def next_hash_id(paths: SwarmPaths, prefix: str = "sw") -> str:
+    """Generate a content-free hash-style ID like ``sw-a1b2``.
+
+    Beads-style short IDs help avoid merge collisions when multiple workers
+    add items concurrently in separate worktrees. Collisions inside the
+    current queue are detected and retried.
+    """
+    import secrets
+    active, pending, done = read_queue(paths)
+    taken = {i.id for i in active + pending + done}
+    for _ in range(32):
+        candidate = f"{prefix}-{secrets.token_hex(2)}"
+        if candidate not in taken:
+            return candidate
+    # 32 collisions in a 65k space means the queue is huge — widen to 6 hex.
+    while True:
+        candidate = f"{prefix}-{secrets.token_hex(3)}"
+        if candidate not in taken:
+            return candidate
 
 
 def claim_item(paths: SwarmPaths, item_id: str, agent_id: str, compete: bool = False) -> WorkItem:
@@ -604,10 +658,20 @@ def add_item(
     notes: str = "",
     refs: list[str] | None = None,
     depends: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    duplicates: list[str] | None = None,
+    hash_id: bool = False,
 ) -> WorkItem:
-    """Add a new OPEN work item with an auto-assigned ID."""
-    code = division_code or _division_code_from_paths(paths)
-    item_id = next_item_id(paths, code)
+    """Add a new OPEN work item with an auto-assigned ID.
+
+    Set ``hash_id=True`` for a beads-style ``sw-XXXX`` ID that won't collide
+    when two worktrees add items in parallel before merging.
+    """
+    if hash_id:
+        item_id = next_hash_id(paths)
+    else:
+        code = division_code or _division_code_from_paths(paths)
+        item_id = next_item_id(paths, code)
     item = WorkItem(
         id=item_id,
         state=ItemState.OPEN,
@@ -617,6 +681,8 @@ def add_item(
         notes=notes,
         refs=refs or [],
         depends=depends or [],
+        supersedes=supersedes or [],
+        duplicates=duplicates or [],
     )
     active, pending, done = read_queue(paths)
     pending.append(item)
@@ -629,12 +695,24 @@ def add_item(
 # ---------------------------------------------------------------------------
 
 def ready_items(paths: SwarmPaths) -> list[WorkItem]:
-    """Return OPEN pending items with all dependencies completed (à la `bd ready`)."""
+    """Return OPEN pending items with all dependencies completed (à la `bd ready`).
+
+    Items are also filtered out if they're known duplicates (``duplicates:``
+    points to another item) or if another item supersedes them (some other
+    item lists this one in its ``supersedes:`` field).
+    """
     active, pending, done = read_queue(paths)
     done_ids = {i.id for i in done}
+    superseded: set[str] = set()
+    for i in active + pending + done:
+        superseded.update(i.supersedes)
     result = []
     for item in pending:
         if item.state != ItemState.OPEN:
+            continue
+        if item.duplicates:
+            continue
+        if item.id in superseded:
             continue
         if not item.depends or all(dep in done_ids for dep in item.depends):
             result.append(item)
@@ -816,7 +894,7 @@ def read_state(paths: SwarmPaths) -> dict[str, str]:
     result: dict[str, str] = {}
     handoff_lines: list[str] = []
     in_handoff = False
-    for line in paths.state.read_text().splitlines():
+    for line in paths.state.read_text(encoding='utf-8').splitlines():
         if line.strip() == "## Handoff Note":
             in_handoff = True
             continue
@@ -837,7 +915,7 @@ def write_state(paths: SwarmPaths, updates: dict[str, str]) -> None:
     if not paths.state.exists():
         _create_state_template(paths)
 
-    lines = paths.state.read_text().splitlines()
+    lines = paths.state.read_text(encoding='utf-8').splitlines()
     now = _now_ts()
     updates.setdefault("Last touched", now)
 
@@ -897,7 +975,7 @@ def append_memory(
         entry += f"\n**Trade-off accepted**: {tradeoff}\n"
 
     if paths.memory.exists():
-        existing = paths.memory.read_text()
+        existing = paths.memory.read_text(encoding='utf-8')
         _atomic_write(paths.memory, existing.rstrip() + "\n" + entry)
     else:
         _atomic_write(paths.memory, f"# Memory — {_division_name(paths)}\n\nAppend-only.\n" + entry)
@@ -969,7 +1047,7 @@ def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             if fcntl:
                 fcntl.flock(f, fcntl.LOCK_EX)
             f.write(content)
