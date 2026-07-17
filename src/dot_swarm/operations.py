@@ -41,6 +41,31 @@ class ClaimLockTimeout(RuntimeError):
     process is actively deciding the same item's claim state."""
 
 
+def _safe_unlink(path: Path) -> None:
+    """Unlink, tolerating both "already gone" and Windows' stricter file-
+    deletion semantics.
+
+    POSIX lets you unlink a path regardless of what else is doing with it
+    at that instant. Windows doesn't: under heavy concurrent create/delete
+    of the SAME lock filename (exactly what many threads racing on one
+    item_id produces — see test_concurrent_claim_item_exactly_one_winner),
+    a delete can transiently collide with another thread's in-flight
+    create and raise PermissionError rather than succeeding or raising
+    FileNotFoundError. A short bounded retry clears it; this is a
+    filesystem quirk, not a lock-correctness issue.
+    """
+    for attempt in range(5):
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt == 4:
+                return  # leave it — stale-reclaim (30s) cleans it up later
+            time.sleep(0.02)
+
+
 @contextmanager
 def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
     """Exclusive advisory lock scoped to ONE item_id.
@@ -77,10 +102,14 @@ def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_S
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.close(fd)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # PermissionError here (Windows only): another thread's create
+            # or delete of this exact filename is in flight — treat it the
+            # same as "lock currently held" and fall through to the same
+            # stale-check / retry path FileExistsError takes.
             try:
                 if time.time() - lock_path.stat().st_mtime > _LOCK_STALE_SECONDS:
-                    lock_path.unlink(missing_ok=True)
+                    _safe_unlink(lock_path)
                     continue
             except OSError:
                 pass  # lock disappeared between the stat and here — fine, retry below
@@ -93,7 +122,7 @@ def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_S
     try:
         yield
     finally:
-        lock_path.unlink(missing_ok=True)
+        _safe_unlink(lock_path)
 
 
 # ---------------------------------------------------------------------------
