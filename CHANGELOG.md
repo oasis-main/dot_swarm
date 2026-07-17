@@ -4,6 +4,83 @@ All notable changes to dot_swarm are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — 2026-07-17
+
+The agent-identity release. Fixes a genuinely broken MCP server, replaces
+the swarm-wide HMAC signing key with a real per-agent primitive, and adds
+the two coordination surfaces (comments, mailbox) that primitive was
+built to secure. No breaking changes to the `.swarm/` directory layout —
+every addition here is additive, and a `.swarm/` with none of the new
+`agents/`/`comments/`/`mailbox/` directories keeps working exactly as
+before. Bumped to 2.0.0 (rather than a strict-SemVer 1.1.0) as a
+deliberate signal: this is the release where dot_swarm's coordination
+model becomes safe to run with agents that don't all trust each other.
+
+### Fixed — MCP server was broken end to end (SWC-047)
+- `dot_swarm_mcp/server.py` imported a function (`heal`) that didn't
+  exist in `ai_ops.py` — every `swarm_heal` MCP call raised `ImportError`.
+  `test_mcp.py`'s own except-clause silently reported "SDK not installed"
+  instead of failing, masking the bug from the test suite entirely.
+- `heal` extracted into a pure `ai_ops.heal()` shared by both the CLI and
+  the MCP server; `swarm_handoff` (implemented but never listed) added to
+  `list_tools()`; `test_mcp.py` now fails loudly on a real break instead
+  of skipping.
+
+### Added — per-agent Ed25519 identity (SWC-048)
+- New `dot_swarm.identity`: each agent gets its own Ed25519 keypair
+  instead of every writer sharing one HMAC key (`signing.py`) that lets
+  any holder forge any agent's signature. Private key never lives in
+  `.swarm/` (default `~/.dot_swarm/keys/<agent_id>.key`, override with
+  `DOT_SWARM_AGENT_KEY_DIR`); public key publishes to the git-tracked
+  `.swarm/agents/<agent_id>.json` registry, which refuses to silently
+  overwrite a different key for an already-registered agent.
+- New CLI: `swarm agent init/list/show`.
+- Fixed a real `.gitignore` bug found while dogfooding this: a blanket
+  `.swarm/` ignore rule silently defeats *any* negation for a subpath
+  (git can't re-include inside an excluded parent) — changed to
+  `.swarm/*` so `.swarm/agents/` can actually be un-ignored.
+
+### Added — MCP server authentication (SWC-049)
+- `call_tool()` used to trust whatever `agent_id`/`inspector_id` string
+  the *caller* passed per call, with zero verification. Since MCP here
+  is stdio (one server process per agent), identity is now bound ONCE
+  at startup via `DOT_SWARM_AGENT_ID` — once bound, it always overrides
+  a caller-supplied value. Unset env var = unchanged pre-2.0 behavior.
+- When the bound agent also has a local Ed25519 key, every write is
+  additionally signed and recorded in `trail.log` via a new, optional
+  `agent_signature` field — additive, existing readers unaffected.
+
+### Fixed — atomic `claim()` (SWC-050)
+- `claim_item()`'s read-decide-write sequence had no lock: concurrent
+  claimants could all observe `OPEN` and all be told they'd won an
+  uncontested claim. New per-item advisory lock
+  (`.swarm/claims/.lock-<item-id>`, `os.open(O_CREAT|O_EXCL)`) closes
+  the window, with stale-lock reclaim (30s) and a timeout (5s default).
+  `resolve_claims()`/`COMPETING` stays in place as defense in depth.
+
+### Added — signed comment threads (SWC-051)
+- New `dot_swarm.comments`: `.swarm/comments/<item-id>.jsonl`,
+  Ed25519-signed, content-addressed `comment_id` (no sequence-number
+  race between concurrent commenters). Out-of-order replies are
+  recorded, not rejected.
+- New CLI: `swarm comment <id> <body> [--reply-to] [--agent]`,
+  `swarm comments <id> [--verify]`.
+- `comments/` is git-tracked (durable shared discussion, like
+  `queue.md`/`agents/`) — unlike the mailbox below.
+
+### Added — agent-to-agent mailbox (SWC-052)
+- New `dot_swarm.mailbox`: direct, Ed25519-signed messaging between
+  agents sharing one `.swarm/` — the mechanism that makes "delegate to
+  a peer with different network access" an actual capability instead
+  of persona description. Distinct from `federation.py` (cross-swarm/
+  cross-repo, HMAC, git-transported); this is within one swarm, over
+  the shared mailbox volume.
+- `.swarm/mailbox/<agent_id>/{inbox,read}/` — one file per message
+  (not JSONL) so marking a message read is a single rename.
+- New CLI: `swarm mail send/inbox/read`.
+- `mailbox/` stays gitignored — ephemeral, consumed-then-gone traffic,
+  unlike `comments/` above.
+
 ## [1.0.1] — 2026-05-04
 
 ### Fixed

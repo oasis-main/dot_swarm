@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
@@ -23,6 +25,75 @@ from .models import (
     Claim, ItemState, Priority, SwarmPaths, SwarmState, WorkItem,
     _now_ts, _parse_ts, PRIORITY_ORDER, utcnow,
 )
+
+
+# ---------------------------------------------------------------------------
+# Per-item claim lock (SWC-050)
+# ---------------------------------------------------------------------------
+
+_LOCK_STALE_SECONDS = 30.0    # abandon a lock this old (crashed holder)
+_LOCK_POLL_SECONDS = 0.02
+_LOCK_TIMEOUT_SECONDS = 5.0
+
+
+class ClaimLockTimeout(RuntimeError):
+    """Raised when a per-item claim lock can't be acquired in time — another
+    process is actively deciding the same item's claim state."""
+
+
+@contextmanager
+def _item_lock(paths: SwarmPaths, item_id: str, timeout: float = _LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
+    """Exclusive advisory lock scoped to ONE item_id.
+
+    claim_item() used to do read_queue() -> decide CLAIMED-vs-COMPETING ->
+    write_claim()/write_queue() with nothing serializing that sequence across
+    processes. Two concurrent callers could both read OPEN, both decide they
+    won an uncontested claim, and both write — resolve_claims() would later
+    reconcile the two records into COMPETING, but neither caller was ever
+    told it raced; both got back a plain "Claimed" result. This lock closes
+    that window by serializing the decide-and-write step per item_id.
+
+    os.open(..., O_CREAT | O_EXCL) is the exclusion primitive: file creation
+    is atomic across processes on any POSIX filesystem. That's a stronger
+    guarantee here than fcntl.flock, which only excludes within its own
+    semantics and is easy to get wrong across a sequence that spans multiple
+    file opens (read_queue, then later write_claim, then write_queue).
+
+    Scoped per item_id (not swarm-wide) so agents claiming DIFFERENT items
+    never contend. A lock older than _LOCK_STALE_SECONDS is treated as
+    abandoned (crashed holder) and reclaimed rather than blocking forever.
+
+    Purely additive: claims/*.json and queue.md formats are unchanged, and
+    resolve_claims()'s COMPETING resolution stays in place as defense in
+    depth — for --compete races (still a legitimate multi-claim case) and
+    for any writer that bypasses this lock entirely (e.g. a direct
+    write_claim() call, or a pre-SWC-050 client sharing the same .swarm/).
+    """
+    paths.claims.mkdir(parents=True, exist_ok=True)
+    lock_path = paths.claims / f".lock-{item_id}"
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > _LOCK_STALE_SECONDS:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass  # lock disappeared between the stat and here — fine, retry below
+            if time.monotonic() >= deadline:
+                raise ClaimLockTimeout(
+                    f"Timed out waiting for the claim lock on {item_id!r} — "
+                    "another process is deciding this item's claim state."
+                )
+            time.sleep(_LOCK_POLL_SECONDS)
+    try:
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -435,40 +506,46 @@ def claim_item(paths: SwarmPaths, item_id: str, agent_id: str, compete: bool = F
 
     Always appends a record to the .swarm/claims/ trail. The queue.md
     rendering is recomputed from the trail on the next read.
+
+    The read-decide-write sequence runs under a per-item lock (SWC-050) so
+    two concurrent claimants can't both observe OPEN and both be told they
+    won an uncontested claim.
     """
-    active, pending, done = read_queue(paths)
-    target = _find_item(pending + active, item_id)
-    if target is None:
-        raise ValueError(f"Item {item_id} not found in active or pending queue.")
+    with _item_lock(paths, item_id):
+        active, pending, done = read_queue(paths)
+        target = _find_item(pending + active, item_id)
+        if target is None:
+            raise ValueError(f"Item {item_id} not found in active or pending queue.")
 
-    if target.state in (ItemState.CLAIMED, ItemState.PARTIAL, ItemState.COMPETING):
-        if not compete:
-            raise ValueError(
-                f"Item {item_id} is already claimed by {target.claimed_by}. "
-                "Use --compete to submit a competing implementation."
-            )
-        new_state = ItemState.COMPETING
-    else:
-        new_state = ItemState.CLAIMED
+        if target.state in (ItemState.CLAIMED, ItemState.PARTIAL, ItemState.COMPETING):
+            if not compete:
+                raise ValueError(
+                    f"Item {item_id} is already claimed by {target.claimed_by}. "
+                    "Use --compete to submit a competing implementation."
+                )
+            new_state = ItemState.COMPETING
+        else:
+            new_state = ItemState.CLAIMED
 
-    now = utcnow()
-    write_claim(paths, Claim(
-        item_id=target.id,
-        agent_id=agent_id,
-        state=new_state,
-        timestamp=now,
-    ))
+        now = utcnow()
+        write_claim(paths, Claim(
+            item_id=target.id,
+            agent_id=agent_id,
+            state=new_state,
+            timestamp=now,
+        ))
 
-    # Reflect the claim in queue.md for human readers (resolver will recompute)
-    target.state = new_state
-    target.claimed_by = agent_id
-    target.claimed_at = now
-    if target in pending:
-        pending.remove(target)
-        active.append(target)
-    write_queue(paths, active, pending, done)
+        # Reflect the claim in queue.md for human readers (resolver will recompute)
+        target.state = new_state
+        target.claimed_by = agent_id
+        target.claimed_at = now
+        if target in pending:
+            pending.remove(target)
+            active.append(target)
+        write_queue(paths, active, pending, done)
 
-    # Re-resolve so callers see the multi-agent COMPETING aggregation
+    # Re-resolve so callers see the multi-agent COMPETING aggregation (outside
+    # the lock — a fresh read, not part of the race window it protects).
     active, pending, done = read_queue(paths)
     return _find_item(active + pending + done, item_id) or target
 

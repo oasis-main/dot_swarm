@@ -1,479 +1,215 @@
-# Queue — dot_swarm (Organization Level)
+# Queue — dot_swarm (Division Level)
 
 Items are listed in priority order within each section.
-Item IDs: `SWC-<3-digit-number>` — assigned sequentially, never reused.
+Item IDs: `<DIVISION-CODE>-<3-digit-number>` — assigned sequentially, never reused.
 
 ---
 
 ## Active
 
-(no active items)
-
 ## Pending
 
-<!-- ═══════════════ INTEGRATION: swarms.ai + oasis-x ═══════════════ -->
-
-- [x] [SWC-013] [DONE] Phase 2: schedules.md + workflow composition (cron-based)
-      project: integration-swarms-ai
-      priority: high
-      completed: 2026-04-06
+- [ ] [SWC-013] [OPEN] Phase 2: schedules.md + workflow composition (cron-based)
+      priority: high | project: misc
       notes: scheduler.py: Schedule dataclass, add_schedule(), is_due(), _cron_is_due() (stdlib, no croniter),
-             run_due(), get_event_triggers(). Types: cron/interval/on:done/on:blocked.
-             workflows.py: Workflow/WorkflowStep/StepResult/WorkflowRun, load/create/run_workflow(),
-             _run_sequential() (halt on failure + skip propagation), _run_concurrent() (threading),
-             _eval_condition() (step1.ok guards), workflow_status() from workflow_runs.jsonl.
-             CLI: swarm schedule list/add/remove/run/run-due + swarm workflow list/show/create/run/status.
-             Tests: test_scheduler.py (38) + test_workflows.py (25) = 63 new. Total suite: 162 passing.
-             No new dependencies — stdlib only. Cron decision: no daemon, no croniter.
-
-- [x] [SWC-014] [DONE] Phase 3: OGP-lite federation layer
-      project: integration-swarms-ai
-      priority: medium
-      completed: 2026-04-06
-      notes: federation.py implemented: trust_peer(), doorman_check() (3-layer),
-             write_outbox(), read_inbox(), apply_inbox_message().
-             CLI: swarm federation init/export-id/trust/revoke/peers/send/inbox/apply.
-             Tests: test_federation.py (34 tests, 100% pass). test_signing.py (22 tests).
-             test_security.py (15 tests). 71 total across all new modules.
-             OGP learnings applied: identity=fingerprint (not path), persist-before-return,
-             doorman never trusts claimed from_fingerprint — always looks up from stored record.
-             Signing note: HMAC-SHA256 for local trail integrity; Ed25519 upgrade path documented.
-             Outreach draft: .drafts/trilogy_outreach.txt (transport-agnostic profile proposal).
-
-- [x] [SWC-015] [DONE] Phase 4b: StigmergicSwarm contribution to swarms.ai
-      project: integration-swarms-ai
-      priority: medium
-      completed: 2026-04-06
-      notes: swarms_provider.py extended with DotSwarmWorkflow (from_markdown, from_swarm_dir,
-             add_agent() fluent, run() with sequential halt-on-failure + condition guards + agent routing)
-             and DotSwarmTool (callable: status/claim/done/add/memory/heal ops).
-             StigmergicSwarm already implemented. All four classes in swarms_provider.py.
-             Tests: test_swarms_provider.py (33 tests, all standalone, no swarms dep).
-             PR guide: docs/SWARMS_AI_PR_GUIDE.md. Proposed: swarms/integrations/dot_swarm/.
-             Total test suite: 195 passing.
-
-<!-- ═══════════════ RESEARCH INITIATIVES ═══════════════ -->
 
 - [ ] [SWC-007] [OPEN] Write paper: stigmergy for AI agent coordination → AAMAS / LLM-agents workshop
-      project: research-stigmergy
-      priority: high
+      priority: high | project: misc
       notes: Novel claim — first filesystem-native stigmergy protocol for multi-agent AI dev teams.
-             Core argument: pheromone trail (state.md) + decay (audit) + no-server coordination
-             beats centralized trackers for latency and resilience. Grounded in Grassé 1959,
-             Dorigo ACO, Bonabeau et al. Target venues (in priority order):
-               1. AAMAS 2027 — full paper, agent coordination track
-               2. NeurIPS/ICLR 2026-27 — LLM-based agents workshop (short paper, faster turnaround)
-               3. AAAI 2027 — AI systems track if AAMAS misses
-             Outline:
-               § 1. Introduction + motivation
-               § 2. Related work
-                    - Stigmergy: Grassé 1959, Theraulaz & Bonabeau 1999, Bonabeau et al. 1999
-                    - ACO: Dorigo, Maniezzo & Colorni 1996; Parunak 1997
-                    - Git-native project tools: GitHub Issues, Linear, Jira (comparison targets)
-                    - Multi-agent AI frameworks: swarms.ai, AutoGen, CrewAI (coordination models)
-                    - Federated inter-agent protocols: OGP (Proctor 2026) — see §4 below
-               § 3. Architecture (stigmergy primitives, pheromone decay, hierarchical colony)
-               § 4. Security under adversarial conditions [NEW — OGP-motivated]
-                    - Trust-the-claim failure mode: attacker controls message body → impersonates peer
-                    - Same attack surface in both inter-agent federation AND LLM prompt injection
-                    - OGP post-mortem (Proctor 2026) as case study: identity=hostname:port bug,
-                      persist-before-return race, implicit trust scope
-                    - dot_swarm mitigations: fingerprint-indexed identity, signed trail, 18-pattern
-                      adversarial scanner, three-layer doorman (policy → peer record → runtime)
-                    - Key claim: stigmergic systems are uniquely vulnerable to environment poisoning
-                      (a malicious agent writes to the shared medium) — and uniquely easy to audit
-                      (every write is a file change, detectable by drift check)
-               § 5. Evaluation (latency vs GitHub Issues/Jira, drift detection accuracy)
-               § 6. Discussion (limits: Unix-only locking, Windows gap, no real-time notification)
-             References to add:
-               Proctor, D. (2026). "Case Study: Building a Protocol in the Age of AI."
-               Trilogy AI Substack. https://trilogyai.substack.com/p/case-study-building-a-protocol-in
-             Needs: comparative experiment section + at least one real multi-agent case study.
 
 - [ ] [SWC-008] [OPEN] Write paper: seamless swarm looping via trajectory tracking + Hermite splines → SIGGRAPH / Eurographics
-      project: research-boids
-      priority: high
+      priority: high | project: misc
       notes: Novel pipeline for perfectly seamless animated swarm GIFs / real-time loops:
-               1. Jerk + snap constraints (limits da/dt and d²a/dt²) — borrowed from minimum-jerk
-                  trajectory planning (Flash & Hogan 1985) but applied to Boids steering forces
-               2. Trajectory-capture looping — record launch phase, use as landing attractor
-               3. Hermite spline C1-smooth final approach — velocity-continuous return to origin
-             Key metric: loop position error reduced 2.10 → 0.0057 px (99.7% improvement).
-             Target venues (in priority order):
-               1. SIGGRAPH 2027 Talks — strongest fit, procedural animation; no full paper required
-               2. Eurographics 2027 short papers — 4 pages, peer reviewed
-               3. Motion, Interaction and Games (MIG) 2026 — deadline sooner, relevant audience
-             Needs: ablation study (remove each constraint, measure loop error + perceptual score),
-             user study or video comparison, runtime benchmark (pure Python + NumPy baseline).
-             Depends on: SWC-009 (BoidRunner refactor gives clean eval harness).
-
-- [ ] [SWC-009] [OPEN] Launch BoidRunner: technical blog post → browser simulator / game
-      project: boidrunner
-      priority: medium
-      notes: Phased plan —
-             Phase 1 · Blog post (2-3 weeks): publish on personal site or dev.to / Hacker News.
-               Lead with the animated GIFs. Explain trajectory tracking, jerk/snap constraints,
-               Hermite spline approach. Include loop-error chart (2.10 → 0.0057). This drives
-               awareness and gathers feedback before committing to a package API.
-             Phase 2 · Standalone package (after blog): refactor gen_logo.py into a clean
-               `Swarm` class with normalized units (canvas-independent), expose trajectory-loop
-               API, publish to PyPI as `boidrunner`. Zero deps beyond NumPy + Pillow.
-             Phase 3 · Browser simulator / game (stretch): port to JS/TS (or Pyodide/WASM) for
-               interactive demo. Users tune weights (sep, ali, coh, jerk-limit) and watch loop
-               quality change in real time. Could evolve into a casual web game (herd the boids,
-               race to best loop error, etc.).
-             Decision: blog-first, no package until API is validated by readers.
-             Blocks: SWC-008 (needs eval harness from Phase 2 refactor).
-
-<!-- ═══════════════ AGENT ROLES + MULTI-AGENT TOOLING ═══════════════ -->
 
 - [x] [SWC-016] [DONE · 2026-04-18T00:00Z] Fix mkdocs.yml stale SwarmCity → dot_swarm URLs
-      project: docs
-      priority: high
+      priority: high | project: misc
       notes: site_url, repo_url, repo_name all updated; gh-pages branch already exists on MikeHLee/dot_swarm
 
 - [ ] [SWC-017] [OPEN] swarm ready — dependency-aware work discovery (like bd ready)
-      project: cli-roles
-      priority: high
+      priority: high | project: misc
       notes: DONE in this session — lists OPEN pending items with all deps completed.
-             swarm ready / swarm ready --json. See operations.ready_items().
 
 - [ ] [SWC-018] [OPEN] Role system infrastructure: roles.py + swarm role enable/disable/show/list
-      project: cli-roles
-      priority: high
+      priority: high | project: misc
       notes: DONE in this session — roles.py: RoleConfig, enable_role, disable_role, load_role,
-             is_role_enabled, list_roles, validate_proof, check_escalation.
-             CLI: swarm role list/enable/disable/show.
-             Roles stored in .swarm/roles/<name>.json (toggled without touching queue.md).
 
 - [ ] [SWC-019] [OPEN] Inspector role — proof-of-work gate, swarm inspect --pass/--fail
-      project: cli-roles
-      priority: high
+      priority: high | project: misc
       notes: DONE in this session — WorkItem gains proof: + inspect_fails: fields.
-             swarm partial <id> --proof "branch:X commit:Y tests:N/N" (worker attaches evidence).
-             swarm done now blocked when inspector enabled + proof missing (--force to override).
-             swarm inspect <id> --pass|--fail --reason <text> (inspector agent verifies).
-             reopen_item() in operations.py: clears proof, increments inspect_fails, moves to OPEN.
-             Escalates to watchdog after max_iterations (default 3) if watchdog role is enabled.
-
-- [x] [SWC-020] [DONE · 2026-04-19T00:00Z] Watchdog role — escalate stuck items to human when worker+inspector loop
-      project: cli-roles
-      priority: medium
-      notes: Subsumed into inspector retry loop. reopen_item() now auto-BLOCKs when inspect_fails
-             >= effective max_retries (task-level overrides role-level). Blocked items surface in
-             swarm audit/status naturally. swarm spawn --role watchdog opens a live monitor window.
-
-- [ ] [SWC-021] [OPEN] Supervisor role — holistic progress view + human-director briefs
-      project: cli-roles
-      priority: medium
-      notes: swarm supervisor report (all active items + phase progress across queue sections),
-             swarm supervisor brief --format md (structured summary for human director).
-             Should aggregate across ascend/descend hierarchy too.
-
-- [x] [SWC-022] [DONE · 2026-04-19T00:00Z] Librarian role — catalog directory tree into .swarm/ context + queue
-      project: cli-roles
-      priority: medium
-      notes: Subsumed into swarm crawl command. crawl_directory() in operations.py walks tree,
-             skips existing .swarm/ divisions, appends Directory Map to context.md.
-             swarm crawl --create-items generates OPEN queue items for uncatalogued dirs.
-             Combined with swarm heal this replaces the librarian role entirely.
 
 - [x] [SWC-023] [DONE · 2026-04-19T00:00Z] tmux worker spawning — swarm spawn <id> [--agent opencode|claude|ollama]
-      project: cli-roles
-      priority: high
+      priority: high | project: misc
       notes: Implemented. swarm spawn SWC-042 --agent opencode|claude|ollama|bedrock.
-             Auto-creates tmux session, opens named window, sets SWARM_AGENT_ID/SWARM_ITEM_ID/SWARM_ROLE.
-             Auto-claims item unless --no-claim. Role agents: swarm spawn --role inspector|supervisor|watchdog.
-             Dependency checks: tmux 3.0+ and chosen agent CLI on PATH.
 
 - [x] [SWC-025] [DONE · 2026-04-19T00:00Z] Task-level max_retries + swarm crawl command
-      project: cli-roles
-      priority: high
+      priority: high | project: misc
       notes: WorkItem.max_retries field (0=use role default, >0=task override).
-             swarm add --max-retries N sets per-task inspector retry limit.
-             reopen_item() uses effective_max = max(task, role) with block-on-exhaust.
-             swarm crawl: crawl_directory() in operations.py, --depth/--create-items/--dry-run.
-             Watchdog and Librarian roles subsumed; simpler architecture overall.
 
-<!-- ═══════════════ CLI IMPROVEMENTS ═══════════════ -->
-
-- [x] [SWC-026] [DONE · 2026-04-19] swarm trail visible/invisible — gitignore-based .swarm sharing toggle
-      project: cli-core
-      priority: high
+- [x] [SWC-026] [DONE · 2026-07-17T15:32Z] swarm trail visible/invisible — gitignore-based .swarm sharing toggle
+      priority: high | project: misc
       notes: Implemented as `swarm trail` group with status/invisible/visible subcommands.
-             swarm init now defaults to invisible (--visible flag to opt in).
-             _repo_gitignore() walks up to nearest .git root. _set_trail_visibility()
-             adds/removes .swarm/ entry with explanatory comment. Docs: CLI_REFERENCE.md.
 
-- [x] [SWC-027] [DONE · 2026-04-19] Tighten init/crawl/explore coupling
-      project: cli-core
-      priority: medium
-      notes: No redundancy to remove — init creates blank .swarm/, crawl populates context.md
-             with Directory Map, explore is read-only display. But they should be coupled:
-             - swarm init should offer to run swarm crawl immediately after (--crawl flag)
-             - swarm crawl should detect dirs that need init and warn/offer to run it
-             - swarm explore should surface crawl coverage (which dirs have been catalogued)
-             Goal: init → crawl → explore forms a coherent onboarding arc.
-
-- [x] [SWC-028] [DONE · 2026-04-19] Ollama AI backend integration (alongside Bedrock)
-      project: ai-features
-      priority: high
+- [x] [SWC-028] [DONE · 2026-07-17T15:32Z] Ollama AI backend integration (alongside Bedrock)
+      priority: high | project: misc
       notes: swarm spawn --agent ollama already launches ollama in tmux as a worker tool,
-             but there is no ollama equivalent to the Bedrock API backend in ai_ops.py.
-             Add OllamaBackend to ai_ops.py: ollama REST API (localhost:11434/api/chat),
-             model selection via swarm configure --provider ollama --model llama3.2,
-             streaming responses, same tool-call interface as BedrockBackend.
-             Also consider: LM Studio (compatible API), vLLM, Groq, Anthropic direct.
-             Provider abstraction: unify under AbstractAIBackend so swarm ai works
-             identically regardless of backend.
 
-- [x] [SWC-029] [DONE · 2026-04-19] Document opencode+tmux multi-agent workflow end-to-end
-      project: docs
-      priority: high
+- [x] [SWC-029] [DONE · 2026-07-17T15:32Z] Document opencode+tmux multi-agent workflow end-to-end
+      priority: high | project: misc
       notes: Full spawn→claim→implement→proof→inspect→merge flow is implemented but
-             undocumented end-to-end. Need a dedicated workflow guide:
-             1. swarm role enable inspector --max-iterations 3
-             2. swarm spawn SWC-042 --agent opencode  (worker tmux window, auto-claim)
-             3. Worker reads BOOTSTRAP.md, implements, runs tests
-             4. swarm partial SWC-042 --proof "branch:X commit:Y tests:N/N"
-             5. swarm spawn --role inspector  (second tmux window)
-             6. swarm inspect SWC-042 --pass|--fail
-             7. swarm done / auto-block on exhaust
-             Also document: env vars set in each window (SWARM_AGENT_ID/ITEM_ID/ROLE),
-             which swarm commands to enable (role enable inspector + spawn deps: tmux 3.0+).
-             Open question: add support for "pi" agentic coding harness? (clarify what
-             "pi agentic" refers to — Raspberry Pi edge deployment? pi.ai terminal agent?
-             Other? — pending user clarification before scoping.)
 
-- [x] [SWC-030] [DONE · 2026-04-19] README + docs: security section overhaul with benefits AND vulnerabilities
-      project: docs
-      priority: high
+- [x] [SWC-030] [DONE · 2026-07-17T15:32Z] README + docs: security section overhaul with benefits AND vulnerabilities
+      priority: high | project: misc
       notes: Current security section is thin. Expand with:
-             BENEFITS: HMAC-SHA256 per-swarm identity; 18-pattern adversarial scanner
-             (CRITICAL/HIGH/MEDIUM); signed trail.log; swarm heal cross-validates all
-             .swarm/ files; pheromone decay flags stale claims; cross-swarm poisoning
-             is extremely hard due to cryptographic stamps + audit chain.
-             VULNERABILITIES (honest disclosure): (1) Git-sharing = trail-sharing —
-             pushing a repo exposes full swarm history unless trail is invisible.
-             (2) HMAC signing is local-trust only (no PKI); a compromised swarm key
-             breaks trail integrity for that swarm. (3) No real-time cross-network
-             federation yet — federation is file-based OGP-lite, not live. (4) LLM
-             content in .swarm/ files (memory.md, notes) is trust-boundary — an
-             agent writing adversarial content to the shared medium can influence
-             other agents reading it (mitigated by scanner but not eliminated).
-             Add FUTURE: live networked federation across swarms (planned if userbase
-             warrants it). Existing gitignore toggle (SWC-026) as the near-term fix.
 
-- [x] [SWC-031] [DONE] Replace oasis-x specific examples in docs with rich generic examples
-      project: docs
-      priority: medium
-      completed: 2026-04-19
-      notes: docs/index.md + README.md: claim pattern block → API-042/043/041 (rate limiter,
-             distributed tracing, auth middleware migration); quick start → API-001; spawn
-             examples → API-042 with rate-limiter-specific proof strings.
-             docs/CLI_REFERENCE.md: global options path → api-service; all CLD-*/SWC-* work
-             item IDs → API-*; schedule/workflow triggers → API-041/042/043; workflow name →
-             rate-limiter-rollout; inspect examples → API-042; spawn window → API-042;
-             crawl output → api-service/services/auth/services/payments; Item ID Convention
-             table → generic SaaS divisions (API/AUTH/DASH/MOB/FW/DOC/INF/LAB/SWC).
-
-- [ ] [SWC-032] [OPEN] Move collaboration/integration notes from docs into .swarm trail; make invisible
-      project: docs
-      priority: medium
-      notes: SWARMS_AI_PR_GUIDE.md, INTEGRATION_PLAN.md, PLATFORM_SETUP.md contain
-             internal oasis-x operating info and integration notes. Move relevant
-             content into: .swarm/memory.md (decisions + rationale), .swarm/context.md
-             (architecture notes), .swarm/queue.md (open integration work items).
-             After migration: remove or heavily redact those docs pages (or mark
-             nav_exclude: true, which is already done).
-             Then run `swarm trail invisible` (SWC-026) to add .swarm/ to .gitignore
-             so the trail is private by default.
-             Also: move oasis-x portfolio/division structure examples into the
-             oasis-x .swarm directory, not the dot_swarm docs.
-
-- [ ] [SWC-024] [OPEN] Merge queue (lightweight Refinery) — serialize concurrent branch merges
-      project: cli-roles
-      priority: low
-      notes: Gastown's Refinery role manages merge queue to prevent parallel worker collisions.
-             dot_swarm equivalent: .swarm/merge_queue.md + swarm merge enqueue/next/pop.
-             Lower priority since single-master git workflows mostly avoid this problem.
-
-<!-- ═══════════════ CORE ARCHITECTURE + REPO STANDARDS ═══════════════ -->
-
-- [x] [SWC-033] [DONE · 2026-05-01] Implement Conflict-Free Concurrency Mechanism (claims/ directory)
-      project: architecture
-      priority: high
+- [x] [SWC-033] [DONE · 2026-07-17T15:32Z] Implement Conflict-Free Concurrency Mechanism (claims/ directory)
+      priority: high | project: misc
       notes: .swarm/claims/ is now a true append-only trail. Every lifecycle op
-             (claim/partial/done/block/reopen/compete) appends an immutable JSON
-             record; release transitions write a superseding record rather than
-             deleting prior ones. resolve_claims picks newest-per-(item,agent),
-             aggregates concurrent active agents into COMPETING, and prefers
-             terminal records (DONE/BLOCKED) over equally-recent active claims.
-             swarm trail claims [--item ID] surfaces full history. [ARCH-001]
 
-- [x] [SWC-034] [DONE · 2026-04-20] Mandate MCP Server for Agent Interactions
-      project: architecture
-      priority: high
+- [x] [SWC-034] [DONE · 2026-07-17T15:32Z] Mandate MCP Server for Agent Interactions
+      priority: high | project: misc
       notes: Expand MCP server implementation. Enforce agent interaction via tools rather than
-             raw file editing to prevent Markdown parsing brittleness. [ARCH-002]
 
-- [x] [SWC-035] [DONE · 2026-04-20] Add Open Source License (MIT or Apache 2.0) Add Open Source License (MIT or Apache 2.0)
-      project: repo-standards
-      priority: high
+- [x] [SWC-035] [DONE · 2026-07-17T15:32Z] Add Open Source License (MIT or Apache 2.0) Add Open Source License (MIT or Apache 2.0)
+      priority: high | project: misc
       notes: Add LICENSE file to root to unblock corporate and widespread adoption. [REPO-001]
 
-- [x] [SWC-036] [DONE · 2026-04-20] Establish Governance & Contribution Guidelines Establish Governance & Contribution Guidelines
-      project: repo-standards
-      priority: high
+- [x] [SWC-036] [DONE · 2026-07-17T15:32Z] Establish Governance & Contribution Guidelines Establish Governance & Contribution Guidelines
+      priority: high | project: misc
       notes: Create CONTRIBUTING.md and .github/ISSUE_TEMPLATE files. [REPO-002]
 
-- [x] [SWC-037] [DONE · 2026-04-20] Expand CI/CD Matrix (Linux, macOS, Windows) Expand CI/CD Matrix (Linux, macOS, Windows)
-      project: repo-standards
-      priority: high
+- [x] [SWC-037] [DONE · 2026-07-17T15:32Z] Expand CI/CD Matrix (Linux, macOS, Windows) Expand CI/CD Matrix (Linux, macOS, Windows)
+      priority: high | project: misc
       notes: Ensure GitHub Actions run tests across all major OSes for path handling. [REPO-003]
 
-<!-- ═══════════════ FEATURES + FUTURE DIRECTIONS ═══════════════ -->
+- [x] [SWC-042] [DONE · 2026-07-17T15:32Z] Fix CI/CD failures and matrix
+      priority: high | project: misc
+      notes: Remove Python 3.10 (unsupported), add anyio to tests, fix MCP test collection, fix Windows compatibility, and fix state consistency.
 
-- [x] [SWC-038] [DONE · 2026-04-20] Native CI/CD Integration: GitHub Action for audit/heal Native CI/CD Integration: GitHub Action for audit/heal
-      project: features
-      priority: medium
+- [ ] [SWC-014] [OPEN] Phase 3: OGP-lite federation layer
+      priority: medium | project: misc
+      notes: federation.py implemented: trust_peer(), doorman_check() (3-layer),
+
+- [ ] [SWC-015] [OPEN] Phase 4b: StigmergicSwarm contribution to swarms.ai
+      priority: medium | project: misc
+      notes: swarms_provider.py extended with DotSwarmWorkflow (from_markdown, from_swarm_dir,
+
+- [ ] [SWC-009] [OPEN] Launch BoidRunner: technical blog post → browser simulator / game
+      priority: medium | project: misc
+      notes: Phased plan —
+
+- [x] [SWC-020] [DONE · 2026-04-19T00:00Z] Watchdog role — escalate stuck items to human when worker+inspector loop
+      priority: medium | project: misc
+      notes: Subsumed into inspector retry loop. reopen_item() now auto-BLOCKs when inspect_fails
+
+- [ ] [SWC-021] [OPEN] Supervisor role — holistic progress view + human-director briefs
+      priority: medium | project: misc
+      notes: swarm supervisor report (all active items + phase progress across queue sections),
+
+- [x] [SWC-022] [DONE · 2026-04-19T00:00Z] Librarian role — catalog directory tree into .swarm/ context + queue
+      priority: medium | project: misc
+      notes: Subsumed into swarm crawl command. crawl_directory() in operations.py walks tree,
+
+- [x] [SWC-027] [DONE · 2026-07-17T15:32Z] Tighten init/crawl/explore coupling
+      priority: medium | project: misc
+      notes: No redundancy to remove — init creates blank .swarm/, crawl populates context.md
+
+- [ ] [SWC-031] [OPEN] Replace oasis-x specific examples in docs with rich generic examples
+      priority: medium | project: misc
+      notes: docs/index.md + README.md: claim pattern block → API-042/043/041 (rate limiter,
+
+- [ ] [SWC-032] [OPEN] Move collaboration/integration notes from docs into .swarm trail; make invisible
+      priority: medium | project: misc
+      notes: SWARMS_AI_PR_GUIDE.md, INTEGRATION_PLAN.md, PLATFORM_SETUP.md contain
+
+- [x] [SWC-038] [DONE · 2026-07-17T15:32Z] Native CI/CD Integration: GitHub Action for audit/heal Native CI/CD Integration: GitHub Action for audit/heal
+      priority: medium | project: misc
       notes: Create/publish official Action to ensure protocol files haven't drifted.
 
-- [x] [SWC-039] [DONE · 2026-04-20] Competitive Task Resolution (Parallel Execution)
-      project: features
-      priority: medium
+- [x] [SWC-039] [DONE · 2026-07-17T15:32Z] Competitive Task Resolution (Parallel Execution)
+      priority: medium | project: misc
       notes: Implement intentional duplicate claims [COMPETING] or [REVIEW].
-             Inspector/Supervisor agents vote on winning implementation.
 
-- [x] [SWC-040] [DONE · 2026-04-20] Visual Protocol Diagrams (Mermaid.js)
-      project: docs
-      priority: medium
+- [x] [SWC-040] [DONE · 2026-07-17T15:32Z] Visual Protocol Diagrams (Mermaid.js)
+      priority: medium | project: misc
       notes: Add diagrams to README demonstrating stigmergy feedback loop. [DOCS-001]
 
-- [x] [SWC-041] [DONE · 2026-04-20] Explicitly list system-level prerequisites (Git, tmux) Explicitly list system-level prerequisites (Git, tmux)
-      project: docs
-      priority: medium
+- [x] [SWC-041] [DONE · 2026-07-17T15:32Z] Explicitly list system-level prerequisites (Git, tmux) Explicitly list system-level prerequisites (Git, tmux)
+      priority: medium | project: misc
       notes: Add to Quick Start/Installation guide to prevent command-not-found errors. [DOCS-002]
 
-
-- [x] [SWC-042] [DONE · 2026-04-20] Fix CI/CD failures and matrix
-      project: repo-standards
-      priority: high
-      notes: Remove Python 3.10 (unsupported), add anyio to tests, fix MCP test collection, fix Windows compatibility, and fix state consistency.
-<!-- ═══════════════ DISTRIBUTION ═══════════════ -->
-
 - [ ] [SWC-003] [OPEN] Configure Trusted Publishing (OIDC) on PyPI
-      Manual step: pypi.org/manage/project/dot-swarm/settings/publishing/
-      Repo: MikeHLee/dot_swarm · Workflow: publish-pypi.yml · Environment: (none)
-      Blocks: SWC-004
-      project: distribution
+      priority: medium | project: misc
 
 - [ ] [SWC-004] [OPEN] Tag and publish v0.3.0 to PyPI
-      Run: git tag v0.3.0 && git push origin v0.3.0
-      GitHub Actions workflow fires automatically on v* tag push
-      Depends on: SWC-003
-      project: distribution
+      priority: medium | project: misc
 
-- [x] [SWC-005] [DONE · 2026-05-04] Update Homebrew formula for dot-swarm v1.0.0
-      File: dot-swarm.rb (replaces swarm-city.rb.template)
-      - Renamed swarm-city → dot-swarm; class DotSwarm
-      - Pinned to dot_swarm 1.0.0 PyPI tarball
-        sha256 0db6847386d96c201c1df7ac047894dc765327fbc4fb9c15dfb74ecb83d47658
-      - 29 transitive resource blocks for dot-swarm[crypto] generated from
-        `pip install --dry-run --report` (homebrew-pypi-poet is broken on
-        Python ≥ 3.12; the report-based method is documented in
-        .swarm/workflows/release.md)
-      - depends_on "rust" => :build for cryptography sdist build path
-      - test do: swarm --version + swarm init/add round-trip
-      - Homepage corrected MikeHLee → oasis-main
-      Landed via PR #1 (merged into main 2026-05-04T17:09Z).
-      project: distribution
+- [x] [SWC-005] [DONE · 2026-07-17T15:32Z] Update Homebrew formula for dot-swarm v1.0.0
+      priority: medium | project: misc
 
-- [x] [SWC-006] [DONE · 2026-05-04] Submit Homebrew formula to tap
-      Decision: project-owned tap (NOT homebrew-core) for the v1.x line.
-      Rationale: instant publish on PyPI release rather than days-to-weeks
-      homebrew-core review, full control over resource pinning churn while
-      tooling/CLI surface evolves, support for pre-release tags
-      (v1.1.0-rc.x) which homebrew-core does not accept. Re-evaluate
-      homebrew-core submission once v1.x stabilises.
-      Tap repo: https://github.com/oasis-main/homebrew-dot-swarm
-        - Formula/dot-swarm.rb (mirrors dot_swarm/dot-swarm.rb)
-        - .github/workflows/tests.yml (brew test-bot matrix on
-          macos-14, macos-13, ubuntu-latest)
-        - README.md (tap-vs-core rationale + install instructions)
-        - LICENSE (MIT)
-        - Tagged v1.0.0
-      Install:  brew tap oasis-main/dot-swarm && brew install dot-swarm
-      project: distribution
+- [x] [SWC-006] [DONE · 2026-07-17T15:32Z] Submit Homebrew formula to tap
+      priority: medium | project: misc
+
+- [ ] [SWC-024] [OPEN] Merge queue (lightweight Refinery) — serialize concurrent branch merges
+      priority: low | project: misc
+      notes: Gastown's Refinery role manages merge queue to prevent parallel worker collisions.
 
 ## Done
 
 - [x] [SWC-012] [DONE · 2026-04-06T14:00Z] Phase 1c: docs/CLI_REFERENCE.md — heal, audit --full, ai --chain, security model, swarms.ai integration
-      project: integration-swarms-ai
+      priority: medium | project: misc
 
 - [x] [SWC-011] [DONE · 2026-04-06T14:00Z] Phase 1b: swarm heal + swarm audit + swarm ai --chain + init identity
-      project: integration-swarms-ai
+      priority: medium | project: misc
 
 - [x] [SWC-010] [DONE · 2026-04-06T14:00Z] Phase 1a: signing.py (HMAC-SHA256) + security.py (18-pattern scanner) + swarms_provider.py (DotSwarmStateProvider + StigmergicSwarm)
-      project: integration-swarms-ai
+      priority: medium | project: misc
 
 - [x] [SWC-001] [DONE · 2026-03-31T15:00Z] GUI for visualizing swarm trails in a GitHub repo
-      project: visualizer
-- [x] [SWC-002] [DONE · 2026-03-31T14:30Z] CLI commands `up` and `down` to manage alignment/relation of work items
-      project: alignment
-- [x] [SWC-003-pre] [DONE · 2026-04-01] Sync package name + version after dot_swarm rename
-      Updated install docs (swarm-city → dot-swarm), versions (0.2.0 → 0.3.0), publish workflow
-      Commit: 7953ea2
-      project: distribution
+      priority: medium | project: misc
 
-<!-- ═══════════════ v1.0 RELEASE TARGETS ═══════════════ -->
+- [x] [SWC-002] [DONE · 2026-03-31T14:30Z] CLI commands `up` and `down` to manage alignment/relation of work items
+      priority: medium | project: misc
 
 - [ ] [SWC-043] [OPEN] Integrate dot_swarm into human todo lists (oasis-x)
-      project: integration
-      priority: high
+      priority: high | project: misc
       notes: Integrate with ~/Documents/Runes/oasis-x/oasis-cloud/src/data.
-             Make dot_swarm the source of truth for both AI and human task tracking.
 
-- [x] [SWC-044] [DONE · 2026-04-20] Fix Docs Website (Jekyll rendering issue)
-      project: docs
-      priority: high
+- [x] [SWC-044] [DONE · 2026-07-17T15:32Z] Fix Docs Website (Jekyll rendering issue)
+      priority: high | project: misc
       notes: Website is currently falling back to a raw README clone.
-             Fix Jekyll rendering to properly build index.html from index.md.
 
 - [ ] [SWC-045] [OPEN] v1.0 Readiness Audit: API Stability + Migration Tooling
-      project: release
-      priority: high
+      priority: high | project: misc
       notes: Ensure stable v0-to-v1 migration path (detect/migrate .swarm/).
-             Validate final API surface.
 
-- [ ] [SWC-046] [OPEN · Phase 1 done 2026-05-01] Swarm Key: AEAD-encrypted trail + nestmate recognition
-      project: security
-      priority: high
+- [ ] [SWC-046] [OPEN] Swarm Key: AEAD-encrypted trail + nestmate recognition
+      priority: high | project: misc
       notes: Phase 1 SHIPPED — vault.py (ChaCha20-Poly1305 envelopes), .swarm/.swarm_key
-             generation, trail.log entries written as swae1: envelopes when key
-             present, transparent decrypt on read, swarm key init/status/rotate/
-             seal/open CLI, [crypto] extra (cryptography>=42), v2 seals (16-hex
-             tag) as the new default. Tests: tests/test_vault.py (11 tests).
-             Phase 2 PENDING — extend AEAD to memory.md, state.md decision entries,
-             claim notes; transparent decrypt on the resolver path.
-             Phase 3 PENDING — federation key exchange under Doorman policy.
-             Original design notes preserved below for Phase 2/3 reference:
-             Properties: (1) confidentiality — pushed `.swarm/` reveals nothing
-             without the key, making `swarm trail visible` safe by default;
-             (2) authenticity — forged entries fail the AEAD tag and cannot be
-             inserted by any process without the key; (3) reflexive intrusion
-             response — `swarm heal` quarantines tag-failures as CRITICAL on
-             contact, the way an ant colony reacts to a wrong cuticular signature.
-             Phasing:
-               P1 — key generation in `swarm init`, `swarm key rotate`, AEAD on trail.log.
-               P2 — extend AEAD to memory.md, state.md decisions, claim notes.
-               P3 — federation: swarm-to-swarm key exchange under Doorman policy,
-                    replacing file-based OGP-lite with authenticated channels.
-             Does NOT replace the 18-pattern adversarial scanner — AEAD prevents
-             forgery from outside, not betrayal from inside (a worker bee that
-             goes rogue still smells right). Scanner remains the layer for that.
-             Crypto choice: XChaCha20-Poly1305 for nonce-misuse resistance
-             (24-byte random nonces); pynacl or cryptography package.
-             Cross-refs: docs/SECURITY.md → "Roadmap: the swarm key";
-                         docs/ARCHITECTURE.md → "Design Roadmap";
-                         README.md → "Coming: encrypted trails and the swarm key".
+
+- [x] [SWC-047] [DONE · 2026-07-17T15:37Z] Fix broken MCP server — heal ImportError + zero test coverage
+      priority: critical | project: misc
+      notes: dot_swarm_mcp/server.py:47 does `from dot_swarm.ai_ops import heal` but | Extracted heal logic into ai_ops.heal() (pure fn, no click.echo); fixed the MCP server's real ImportError; added swarm_handoff to list_tools(); fixed test_mcp.py's masking bug so a broken server.py fails loudly instead of silently skipping. 234 tests pass (was 231 passed + 3 masked-skipped).
+
+- [x] [SWC-048] [DONE · 2026-07-17T15:43Z] Per-agent Ed25519 identity — the real "message signing" primitive
+      priority: critical | project: misc
+      notes: Current signing.py is HMAC-SHA256 with ONE SHARED KEY PER SWARM | New identity.py: per-agent Ed25519 keypairs (private key never in .swarm/, default ~/.dot_swarm/keys/<agent>.key, DOT_SWARM_AGENT_KEY_DIR override). Public-key registry at .swarm/agents/<id>.json, refuses silent key-swap. sign_agent/verify_agent using the registry, never a caller-supplied key. CLI: swarm agent init/list/show. Fixed a real .gitignore bug found while dogfooding: blanket '.swarm/' silently defeats any negation for a subpath (git can't re-include inside an excluded parent) -- changed to '.swarm/*' + explicit un-ignore for .swarm/agents/. 15 new tests incl. the core property: a compromised agent's key cannot forge a peer's signature. 249 tests pass (was 234).
+      depends: SWC-047
+
+- [x] [SWC-049] [DONE · 2026-07-17T18:09Z] MCP server authentication — bind identity to the process, not the call
+      priority: critical | project: misc
+      notes: call_tool() currently trusts whatever `agent_id` string the CALLER | MCP write tools (claim/done/add/append_memory/partial/block/inspect) now resolve agent_id from a process-bound DOT_SWARM_AGENT_ID env var when set, overriding any caller-supplied value -- closes the 'caller can just say it is a different agent' gap. Bound identity + local Ed25519 key (SWC-048) additionally signs each write into trail.log via a new agent_signature field (additive, existing trail.log readers unaffected). Unset env var = unchanged pre-SWC-049 behavior. 4 new tests, 253 passing (was 249).
+      depends: SWC-048
+
+- [x] [SWC-050] [DONE · 2026-07-17T18:12Z] Atomic claim() — close the TOCTOU window
+      priority: high | project: misc
+      notes: claim_item() (operations.py:408) does read_queue() -> check state -> | claim_item()'s read-decide-write sequence now runs under a per-item advisory lock (.swarm/claims/.lock-<item-id>, os.open O_CREAT|O_EXCL) closing the TOCTOU window where concurrent claimants could all observe OPEN and all be told they won uncontested. Stale-lock reclaim (30s) guards against a crashed holder; ClaimLockTimeout after 5s default otherwise. Scoped per item_id so unrelated claims never contend. resolve_claims()/COMPETING kept as defense-in-depth for --compete races and non-locking writers. 5 new tests incl. an 8-thread real race proving exactly one winner. 258 passing (was 253).
+
+- [x] [SWC-051] [DONE · 2026-07-17T18:18Z] Comments — threaded discussion on a work item, signed
+      priority: high | project: misc
+      notes: No structured comment/discussion mechanism exists today — coordination | New comments.py: .swarm/comments/<item-id>.jsonl, one JSON object per line (mirrors claims/ append-only pattern). Content-addressed comment_id (sha256 of item+agent+ts+body, first 12 hex) so concurrent commenters never race for an ID the way a counter would. Ed25519-signed via identity.py (SWC-048) when the agent has a local key; UNSIGNED sentinel otherwise, matching existing convention. Out-of-order replies (reply_to referencing an unseen comment_id) are recorded, not rejected -- CLI flags them as orphaned. CLI: swarm comment <id> <body> [--reply-to] [--agent], swarm comments <id> [--verify]. MCP: swarm_comment/swarm_comments, wired through SWC-049's _effective_agent_id override. .gitignore: comments/ un-ignored (durable shared discussion, like queue.md/agents/) -- unlike mailbox/ (SWC-052, ephemeral, stays under the blanket .swarm/* ignore). 17 new tests (12 unit incl. the compromised-agent-cannot-forge-as-a-peer property, 2 MCP, 3 CLI). 275 passing (was 258).
+      depends: SWC-048
+
+- [x] [SWC-052] [DONE · 2026-07-17T18:23Z] Mailbox — direct agent-to-agent messaging within one swarm
+      priority: high | project: misc
+      notes: federation.py's inbox/outbox is for CROSS-swarm (cross-repo) exchange | New mailbox.py: .swarm/mailbox/<agent-id>/{inbox,read}/<microsecond-ts>_<msg-id>.json -- one file per message (not JSONL like comments/, since 'mark as read' needs a cheap single-file move, not a log rewrite). This is the mechanism that makes Yes Man's 'delegate to a peer with different egress' design real instead of persona prose. Ed25519-signed (SWC-048) when sender has a local key; UNSIGNED sentinel otherwise. Explicitly distinct from federation.py (cross-swarm/cross-repo, HMAC, git-transported) -- mail is within one swarm, over the shared mailbox volume. CLI: swarm mail send/inbox/read. MCP: swarm_mail_send/inbox/read, sender wired through SWC-049's _effective_agent_id override. .gitignore: mailbox/ deliberately left under the blanket .swarm/* ignore (ephemeral, consumed-then-gone -- contrast with SWC-051's comments/, which is committed). 19 new tests (13 unit incl. the compromised-agent-cannot-forge-a-delegation-as-a-trusted-peer property, 3 MCP, 3 CLI). 294 passing (was 275). This closes the SWC-047..052 epic: MCP server was broken end to end (047), swarm-wide HMAC was the wrong primitive for a fleet where individual agents can be compromised (048's Ed25519 fix), the MCP layer trusted caller-supplied identity (049's process-binding fix), claim() had a real TOCTOU race (050's lock), and there was no structured way for agents to discuss work (051) or talk to each other directly (052).
+      depends: SWC-048

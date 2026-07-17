@@ -1,10 +1,14 @@
+import os
+import threading
+import time
+
 import pytest
 from pathlib import Path
 from datetime import datetime
 from dot_swarm.models import SwarmPaths, WorkItem, ItemState, Claim
 from dot_swarm.operations import (
     read_queue, write_queue, claim_item, done_item, read_claims,
-    resolve_claims
+    resolve_claims, ClaimLockTimeout, _item_lock,
 )
 
 @pytest.fixture
@@ -137,3 +141,112 @@ def test_promote_competitor_marks_losers_withdrawn(swarm_paths):
     target = next(i for i in active if i.id == "SWC-001")
     assert target.state == ItemState.CLAIMED
     assert target.claimed_by == "agent-2"
+
+
+# ---------------------------------------------------------------------------
+# SWC-050: per-item claim lock closes the read-decide-write TOCTOU window.
+# ---------------------------------------------------------------------------
+
+def test_concurrent_claim_item_exactly_one_winner(swarm_paths):
+    """THE core property: N threads racing to claim the SAME OPEN item with
+    compete=False must produce exactly ONE winner and N-1 ValueErrors —
+    never N silent 'successes' that only get reconciled into COMPETING
+    after the fact. Without the SWC-050 lock this was flaky: concurrent
+    callers could all observe OPEN before any of them wrote."""
+    item = WorkItem(id="SWC-001", description="Race", state=ItemState.OPEN)
+    write_queue(swarm_paths, [], [item], [])
+    swarm_paths.claims.mkdir(parents=True, exist_ok=True)
+
+    n = 8
+    barrier = threading.Barrier(n)
+    results: list[tuple[str, object]] = []
+    lock = threading.Lock()
+
+    def worker(agent_id: str) -> None:
+        barrier.wait()  # maximize actual contention
+        try:
+            claim_item(swarm_paths, "SWC-001", agent_id, compete=False)
+            outcome = ("ok", agent_id)
+        except ValueError as e:
+            outcome = ("error", str(e))
+        with lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=worker, args=(f"agent-{i}",)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert len(results) == n
+    winners = [r for r in results if r[0] == "ok"]
+    losers = [r for r in results if r[0] == "error"]
+    assert len(winners) == 1, f"expected exactly 1 winner, got {winners}"
+    assert len(losers) == n - 1
+    assert all("already claimed" in msg for _, msg in losers)
+
+    # No leftover lock file after every claimant has finished.
+    assert not (swarm_paths.claims / ".lock-SWC-001").exists()
+
+    active, pending, done = read_queue(swarm_paths)
+    target = next(i for i in active if i.id == "SWC-001")
+    assert target.state == ItemState.CLAIMED
+    assert target.claimed_by == winners[0][1]
+
+
+def test_item_lock_releases_after_use(swarm_paths):
+    with _item_lock(swarm_paths, "SWC-999"):
+        assert (swarm_paths.claims / ".lock-SWC-999").exists()
+    assert not (swarm_paths.claims / ".lock-SWC-999").exists()
+
+
+def test_item_lock_scoped_per_item_not_swarm_wide(swarm_paths):
+    """Two DIFFERENT items must never contend — only same-item callers should
+    serialize."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_a():
+        with _item_lock(swarm_paths, "SWC-A"):
+            entered.set()
+            release.wait(timeout=5)
+
+    t = threading.Thread(target=hold_a)
+    t.start()
+    assert entered.wait(timeout=5)
+
+    # A lock on a DIFFERENT item must acquire immediately, not wait on SWC-A.
+    start = time.monotonic()
+    with _item_lock(swarm_paths, "SWC-B"):
+        pass
+    assert time.monotonic() - start < 1.0
+
+    release.set()
+    t.join(timeout=5)
+
+
+def test_item_lock_times_out_when_genuinely_held(swarm_paths):
+    with _item_lock(swarm_paths, "SWC-001"):
+        # Held (not stale — mtime is now) by "this" call; a nested/second
+        # attempt with a short timeout must give up rather than hang.
+        with pytest.raises(ClaimLockTimeout):
+            with _item_lock(swarm_paths, "SWC-001", timeout=0.15):
+                pass  # pragma: no cover — must never be reached
+
+
+def test_item_lock_reclaims_stale_lock(swarm_paths):
+    """A lock file left behind by a crashed holder must not block forever —
+    once older than the staleness threshold it's reclaimed."""
+    from dot_swarm import operations as _ops
+
+    swarm_paths.claims.mkdir(parents=True, exist_ok=True)
+    stale = swarm_paths.claims / ".lock-SWC-001"
+    stale.touch()
+    old = time.time() - (_ops._LOCK_STALE_SECONDS + 5)
+    os.utime(stale, (old, old))
+
+    start = time.monotonic()
+    with _item_lock(swarm_paths, "SWC-001", timeout=2.0):
+        pass
+    # Reclaimed promptly, not after waiting out the full 2s timeout.
+    assert time.monotonic() - start < 1.0
