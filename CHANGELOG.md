@@ -16,6 +16,43 @@ before. Bumped to 2.0.0 (rather than a strict-SemVer 1.1.0) as a
 deliberate signal: this is the release where dot_swarm's coordination
 model becomes safe to run with agents that don't all trust each other.
 
+### Added — hash-style IDs, graph edges, JSON output (worktree-friendly queue)
+- Borrows three ideas from [beads (bd)](https://github.com/steveyegge/beads)
+  without taking on its Dolt-backed storage — the markdown queue +
+  append-only claims trail stays the source of truth.
+- `swarm add --hash-id` generates beads-style `sw-XXXX` IDs that don't
+  collide when two worktrees add items in parallel before merging.
+  `ITEM_RE` widened to accept both `DIVISION-NNN` and the hash form.
+- New `supersedes:`/`duplicates:` edge fields on work items. `swarm
+  ready` now skips items that are duplicates of, or superseded by,
+  another item. CLI: `swarm add --supersedes ID,...` / `--duplicates
+  ID,...`.
+- `--json` on `swarm ls` and `swarm status` (matching the existing
+  `swarm ready --json`), all three now surfacing the new edge fields
+  so agent scripts can consume the queue without regex-parsing markdown.
+
+### Fixed — Windows file-encoding and clock-resolution gaps
+- `operations.py::_atomic_write()` wrote via `os.fdopen(fd, "w")` with
+  no explicit encoding — missed by an earlier encoding sweep that only
+  covered `Path.read_text()`/`write_text()`/`open()` calls. This was
+  the actual cause of Windows CI failures on any queue.md containing
+  an em dash: every write went through the process locale (cp1252)
+  while every read had already been fixed to utf-8 — a write/read
+  mismatch, not a read-only bug. Also closed 9 sites in `identity.py`/
+  `mailbox.py` (written before the Windows-encoding convention existed)
+  and 2 in test fixtures, found via an AST-based sweep rather than grep
+  so multi-line calls couldn't hide a missing `encoding=`.
+- `mailbox.py`'s inbox filename ordering assumed microsecond-precision
+  timestamps were enough to distinguish two sends — not true on
+  platforms with coarser clock resolution (observed on Windows CI: two
+  back-to-back `send_message()` calls landed on the identical tick).
+  Added a monotonic per-process counter as the real ordering guarantee.
+- The SWC-050 claim lock's cleanup could hit `PermissionError` on
+  Windows under heavy concurrent create/delete of the same lock
+  filename — POSIX allows that unconditionally, Windows doesn't.
+  Added a bounded retry; worst case falls back to the lock's existing
+  30s stale-reclaim, not a new failure mode.
+
 ### Fixed — MCP server was broken end to end (SWC-047)
 - `dot_swarm_mcp/server.py` imported a function (`heal`) that didn't
   exist in `ai_ops.py` — every `swarm_heal` MCP call raised `ImportError`.
