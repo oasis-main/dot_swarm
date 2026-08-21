@@ -110,6 +110,74 @@ swarm ready <span class="nt">--json</span>     <span class="c"># machine-readabl
 <p>Only items in the <code class="language-plaintext highlighter-rouge">Pending</code> section with state <code class="language-plaintext highlighter-rouge">OPEN</code> whose entire <code class="language-plaintext highlighter-rouge">depends:</code> chain
 appears in the <code class="language-plaintext highlighter-rouge">Done</code> section are shown. Items with no dependencies are always listed.</p>
 
+<h3 id="swarm-gui"><code class="language-plaintext highlighter-rouge">swarm gui</code></h3>
+
+<p>Serve the colony as a browsable, editable web page on <code class="language-plaintext highlighter-rouge">127.0.0.1</code>. Reads every
+<code class="language-plaintext highlighter-rouge">.swarm/</code> division under <code class="language-plaintext highlighter-rouge">--path</code> and renders four views: a division overview, the
+global priority queue sorted across every division, the combined commit trail, and a
+per-division detail page.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm gui                          <span class="c"># http://127.0.0.1:8000</span>
+swarm gui <span class="nt">--port</span> 9000 <span class="nt">--open</span>       <span class="c"># different port, open the browser</span>
+swarm gui <span class="nt">--read-only</span>              <span class="c"># serve the page without write routes</span>
+swarm gui <span class="nt">--agent</span> alice            <span class="c"># attribute writes to a specific agent</span>
+swarm <span class="nt">--path</span> ~/org gui             <span class="c"># serve a colony you are not standing in</span>
+</code></pre></div></div>
+
+<p>The page is <strong>self-contained</strong> — no CDN, no webfont, no build step. It renders with
+no network access at all, which is the point: <code class="language-plaintext highlighter-rouge">swarm gui</code> is a local operator tool
+that has to work on a plane, behind a proxy, and inside an egress-blocked container.</p>
+
+<p><strong>Writing from the page.</strong> Add, claim, complete, block and comment go through the same
+<code class="language-plaintext highlighter-rouge">operations.py</code> calls the CLI uses. A write from the dashboard produces the same
+<code class="language-plaintext highlighter-rouge">queue.md</code> entry and the same append-only record in <code class="language-plaintext highlighter-rouge">.swarm/claims/</code> as the equivalent
+<code class="language-plaintext highlighter-rouge">swarm</code> command — there is no separate storage path and no translation layer, so a
+human working in the browser and an agent working over MCP are editing one queue.</p>
+
+<p><strong>What bounds a write:</strong></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Control</th>
+      <th>Behaviour</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Bind address</td>
+      <td><code class="language-plaintext highlighter-rouge">127.0.0.1</code> only — never published to other interfaces</td>
+    </tr>
+    <tr>
+      <td>Write token</td>
+      <td>Random per run, embedded in the page at serve time, required in the <code class="language-plaintext highlighter-rouge">X-Swarm-Token</code> header. A page from another site cannot read it, and setting a custom header forces a CORS preflight this server does not answer.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Origin</code> check</td>
+      <td>A request carrying a foreign <code class="language-plaintext highlighter-rouge">Origin</code> is refused with 403</td>
+    </tr>
+    <tr>
+      <td>Division allow-list</td>
+      <td>The <code class="language-plaintext highlighter-rouge">division_path</code> in a request must already be a discovered division. A path outside the colony is refused.</td>
+    </tr>
+    <tr>
+      <td>Body limit</td>
+      <td>64 KB</td>
+    </tr>
+    <tr>
+      <td>Static files</td>
+      <td>Only <code class="language-plaintext highlighter-rouge">/</code>, <code class="language-plaintext highlighter-rouge">/api/state.json</code> and <code class="language-plaintext highlighter-rouge">/logo.png</code> are served. Every other path is a 404 — the handler never falls through to serving the working directory.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">--read-only</code></td>
+      <td>No token is embedded, and every write route answers 403</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Requests are handled one at a time, so the dashboard never mutates two items
+concurrently. <code class="language-plaintext highlighter-rouge">claim</code> additionally takes the same per-item lock the CLI takes.</p>
+
 <hr />
 
 <h2 id="work-item-lifecycle">Work Item Lifecycle</h2>

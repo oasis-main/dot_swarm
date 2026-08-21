@@ -828,11 +828,11 @@ blockquote {
   }
 }
 .site-title:hover {
-  background-image: linear-gradient(-90deg, rgb(234.8, 236.82, 244.9) 0%, rgba(234.8, 236.82, 244.9, 0.8) 80%, rgba(234.8, 236.82, 244.9, 0) 100%);
+  background-image: linear-gradient(-90deg, rgb(92.0784313725%, 92.8705882353%, 96.0392156863%) 0%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0.8) 80%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0) 100%);
 }
 
 .site-button:hover {
-  background-image: linear-gradient(-90deg, rgb(234.8, 236.82, 244.9) 0%, rgba(234.8, 236.82, 244.9, 0.8) 100%);
+  background-image: linear-gradient(-90deg, rgb(92.0784313725%, 92.8705882353%, 96.0392156863%) 0%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0.8) 100%);
 }
 
 .site-footer {
@@ -1161,8 +1161,8 @@ blockquote {
   text-decoration: none;
 }
 .nav-list .nav-list-item .nav-list-link:hover, .nav-list .nav-list-item .nav-list-link.active {
-  color: rgb(95.0763157895, 59.9157894737, 234.5842105263);
-  background-image: linear-gradient(-90deg, rgb(234.8, 236.82, 244.9) 0%, rgba(234.8, 236.82, 244.9, 0.8) 80%, rgba(234.8, 236.82, 244.9, 0) 100%);
+  color: rgb(37.2848297214%, 23.4963880289%, 91.9938080495%);
+  background-image: linear-gradient(-90deg, rgb(92.0784313725%, 92.8705882353%, 96.0392156863%) 0%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0.8) 80%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0) 100%);
 }
 .nav-list .nav-list-item .nav-list-expander {
   position: absolute;
@@ -1181,7 +1181,7 @@ blockquote {
   }
 }
 .nav-list .nav-list-item .nav-list-expander:hover {
-  background-image: linear-gradient(-90deg, rgb(234.8, 236.82, 244.9) 0%, rgba(234.8, 236.82, 244.9, 0.8) 100%);
+  background-image: linear-gradient(-90deg, rgb(92.0784313725%, 92.8705882353%, 96.0392156863%) 0%, rgba(92.0784313725%, 92.8705882353%, 96.0392156863%, 0.8) 100%);
 }
 .nav-list .nav-list-item .nav-list-expander svg {
   transform: rotate(90deg);
@@ -1491,19 +1491,19 @@ h6,
   box-shadow: 0 0 0 3px rgba(0, 0, 255, 0.25);
 }
 .btn:hover, .btn.zeroclipboard-is-hover {
-  color: rgb(106.4305263158, 73.7663157895, 236.0336842105);
+  color: rgb(41.7374613003%, 28.9279669763%, 92.5622291022%);
 }
 .btn:hover, .btn:active, .btn.zeroclipboard-is-hover, .btn.zeroclipboard-is-active {
   text-decoration: none;
-  background-color: rgb(244.45, 244.45, 244.45);
+  background-color: rgb(95.862745098%, 95.862745098%, 95.862745098%);
 }
 .btn:active, .btn.selected, .btn.zeroclipboard-is-active {
-  background-color: rgb(239.35, 239.35, 239.35);
+  background-color: rgb(93.862745098%, 93.862745098%, 93.862745098%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn.selected:hover {
-  background-color: rgb(207.25, 207.25, 207.25);
+  background-color: rgb(81.2745098039%, 81.2745098039%, 81.2745098039%);
 }
 .btn:disabled, .btn:disabled:hover, .btn.disabled, .btn.disabled:hover {
   color: rgba(102, 102, 102, 0.5);
@@ -1519,7 +1519,7 @@ h6,
   box-shadow: inset 0 0 0 2px #e6e1e8;
 }
 .btn-outline:hover, .btn-outline:active, .btn-outline.zeroclipboard-is-hover, .btn-outline.zeroclipboard-is-active {
-  color: rgb(98.8610526316, 64.5326315789, 235.0673684211);
+  color: rgb(38.7690402477%, 25.3069143447%, 92.1832817337%);
   text-decoration: none;
   background-color: transparent;
   box-shadow: inset 0 0 0 3px #e6e1e8;
@@ -1535,82 +1535,82 @@ h6,
 
 .btn-primary {
   color: #fff;
-  background-color: rgb(87.0708860759, 56.8227848101, 205.9772151899);
-  background-image: linear-gradient(rgb(111.3227848101, 85.4430379747, 213.0569620253), rgb(87.0708860759, 56.8227848101, 205.9772151899));
+  background-color: rgb(34.14544552%, 22.2834450236%, 80.7753785058%);
+  background-image: linear-gradient(rgb(43.6559940432%, 33.5070737156%, 83.5517498138%), rgb(34.14544552%, 22.2834450236%, 80.7753785058%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-primary:hover, .btn-primary.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(81.0025316456, 50.0936708861, 202.5063291139);
-  background-image: linear-gradient(rgb(100.9291139241, 73.1772151899, 210.0227848101), rgb(81.0025316456, 50.0936708861, 202.5063291139));
+  background-color: rgb(31.7656986845%, 19.6445768181%, 79.4142467113%);
+  background-image: linear-gradient(rgb(39.5800446761%, 28.6969471333%, 82.3618763961%), rgb(31.7656986845%, 19.6445768181%, 79.4142467113%));
 }
 .btn-primary:active, .btn-primary.selected, .btn-primary.zeroclipboard-is-active {
-  background-color: rgb(79.3670886076, 49.082278481, 198.417721519);
+  background-color: rgb(31.1243484736%, 19.2479523455%, 77.8108711839%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-primary.selected:hover {
-  background-color: rgb(71.1898734177, 44.0253164557, 177.9746835443);
+  background-color: rgb(27.9175974187%, 17.2648299826%, 69.7939935468%);
 }
 
 .btn-purple {
   color: #fff;
-  background-color: rgb(87.0708860759, 56.8227848101, 205.9772151899);
-  background-image: linear-gradient(rgb(111.3227848101, 85.4430379747, 213.0569620253), rgb(87.0708860759, 56.8227848101, 205.9772151899));
+  background-color: rgb(34.14544552%, 22.2834450236%, 80.7753785058%);
+  background-image: linear-gradient(rgb(43.6559940432%, 33.5070737156%, 83.5517498138%), rgb(34.14544552%, 22.2834450236%, 80.7753785058%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-purple:hover, .btn-purple.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(81.0025316456, 50.0936708861, 202.5063291139);
-  background-image: linear-gradient(rgb(100.9291139241, 73.1772151899, 210.0227848101), rgb(81.0025316456, 50.0936708861, 202.5063291139));
+  background-color: rgb(31.7656986845%, 19.6445768181%, 79.4142467113%);
+  background-image: linear-gradient(rgb(39.5800446761%, 28.6969471333%, 82.3618763961%), rgb(31.7656986845%, 19.6445768181%, 79.4142467113%));
 }
 .btn-purple:active, .btn-purple.selected, .btn-purple.zeroclipboard-is-active {
-  background-color: rgb(79.3670886076, 49.082278481, 198.417721519);
+  background-color: rgb(31.1243484736%, 19.2479523455%, 77.8108711839%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-purple.selected:hover {
-  background-color: rgb(71.1898734177, 44.0253164557, 177.9746835443);
+  background-color: rgb(27.9175974187%, 17.2648299826%, 69.7939935468%);
 }
 
 .btn-blue {
   color: #fff;
-  background-color: rgb(36.1802816901, 72.3605633803, 166.6197183099);
-  background-image: linear-gradient(rgb(42.5492957746, 85.0985915493, 195.9507042254), rgb(36.1802816901, 72.3605633803, 166.6197183099));
+  background-color: rgb(14.1883457608%, 28.3766915217%, 65.3410660039%);
+  background-image: linear-gradient(rgb(16.685998343%, 33.371996686%, 76.8434134217%), rgb(14.1883457608%, 28.3766915217%, 65.3410660039%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-blue:hover, .btn-blue.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(34.3605633803, 68.7211267606, 158.2394366197);
-  background-image: linear-gradient(rgb(39.8197183099, 79.6394366197, 183.3802816901), rgb(34.3605633803, 68.7211267606, 158.2394366197));
+  background-color: rgb(13.4747307374%, 26.9494614747%, 62.0546810273%);
+  background-image: linear-gradient(rgb(15.6155758078%, 31.2311516156%, 71.9138359569%), rgb(13.4747307374%, 26.9494614747%, 62.0546810273%));
 }
 .btn-blue:active, .btn-blue.selected, .btn-blue.zeroclipboard-is-active {
-  background-color: rgb(33.4507042254, 66.9014084507, 154.0492957746);
+  background-color: rgb(13.1179232256%, 26.2358464513%, 60.4114885391%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-blue.selected:hover {
-  background-color: rgb(28.9014084507, 57.8028169014, 133.0985915493);
+  background-color: rgb(11.3338856669%, 22.6677713339%, 52.1955260978%);
 }
 
 .btn-green {
   color: #fff;
-  background-color: rgb(1.8178571429, 99.9821428571, 79.0767857143);
-  background-image: linear-gradient(rgb(2.4553571429, 135.0446428571, 106.8080357143), rgb(1.8178571429, 99.9821428571, 79.0767857143));
+  background-color: rgb(0.7128851541%, 39.2086834734%, 31.0105042017%);
+  background-image: linear-gradient(rgb(0.9628851541%, 52.9586834734%, 41.8855042017%), rgb(0.7128851541%, 39.2086834734%, 31.0105042017%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-green:hover, .btn-green.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(1.6357142857, 89.9642857143, 71.1535714286);
-  background-image: linear-gradient(rgb(2.1821428571, 120.0178571429, 94.9232142857), rgb(1.6357142857, 89.9642857143, 71.1535714286));
+  background-color: rgb(0.6414565826%, 35.2801120448%, 27.9033613445%);
+  background-image: linear-gradient(rgb(0.8557422969%, 47.0658263305%, 37.224789916%), rgb(0.6414565826%, 35.2801120448%, 27.9033613445%));
 }
 .btn-green:active, .btn-green.selected, .btn-green.zeroclipboard-is-active {
-  background-color: rgb(1.5446428571, 84.9553571429, 67.1919642857);
+  background-color: rgb(0.6057422969%, 33.3158263305%, 26.349789916%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-green.selected:hover {
-  background-color: rgb(1.0892857143, 59.9107142857, 47.3839285714);
+  background-color: rgb(0.4271708683%, 23.4943977591%, 18.5819327731%);
 }
 
 .btn-reset {
@@ -1765,7 +1765,7 @@ h6,
   outline-offset: -1px;
 }
 .search-result:hover, .search-result.active {
-  background-color: rgb(234.8, 236.82, 244.9);
+  background-color: rgb(92.0784313725%, 92.8705882353%, 96.0392156863%);
 }
 
 .search-result-title {

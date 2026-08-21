@@ -1161,7 +1161,7 @@ blockquote {
   text-decoration: none;
 }
 .nav-list .nav-list-item .nav-list-link:hover, .nav-list .nav-list-item .nav-list-link.active {
-  color: rgb(17.2051282051, 74.2948717949, 69.6025641026);
+  color: rgb(6.7471091001%, 29.1352438411%, 27.2951231775%);
   background-image: linear-gradient(-90deg, #165f59 0%, rgba(22, 95, 89, 0.8) 80%, rgba(22, 95, 89, 0) 100%);
 }
 .nav-list .nav-list-item .nav-list-expander {
@@ -1491,19 +1491,19 @@ h6,
   box-shadow: 0 0 0 3px rgba(0, 0, 255, 0.25);
 }
 .btn:hover, .btn.zeroclipboard-is-hover {
-  color: rgb(20.0820512821, 86.7179487179, 81.241025641);
+  color: rgb(7.8753142283%, 34.0070387129%, 31.8592257416%);
 }
 .btn:hover, .btn:active, .btn.zeroclipboard-is-hover, .btn.zeroclipboard-is-active {
   text-decoration: none;
-  background-color: rgb(21.041025641, 90.858974359, 85.1205128205);
+  background-color: rgb(8.2513826043%, 35.6309703369%, 33.3805932629%);
 }
 .btn:active, .btn.selected, .btn.zeroclipboard-is-active {
-  background-color: rgb(19.1230769231, 82.5769230769, 77.3615384615);
+  background-color: rgb(7.4992458522%, 32.383107089%, 30.3378582202%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn.selected:hover {
-  background-color: rgb(207.25, 207.25, 207.25);
+  background-color: rgb(81.2745098039%, 81.2745098039%, 81.2745098039%);
 }
 .btn:disabled, .btn:disabled:hover, .btn.disabled, .btn.disabled:hover {
   color: rgba(102, 102, 102, 0.5);
@@ -1519,7 +1519,7 @@ h6,
   box-shadow: inset 0 0 0 2px #e6e1e8;
 }
 .btn-outline:hover, .btn-outline:active, .btn-outline.zeroclipboard-is-hover, .btn-outline.zeroclipboard-is-active {
-  color: rgb(18.1641025641, 78.4358974359, 73.4820512821);
+  color: rgb(7.1231774761%, 30.7591754651%, 28.8164906988%);
   text-decoration: none;
   background-color: transparent;
   box-shadow: inset 0 0 0 3px #e6e1e8;
@@ -1535,82 +1535,82 @@ h6,
 
 .btn-primary {
   color: #fff;
-  background-color: rgb(20.0820512821, 86.7179487179, 81.241025641);
-  background-image: linear-gradient(rgb(26.7948717949, 115.7051282051, 108.3974358974), rgb(20.0820512821, 86.7179487179, 81.241025641));
+  background-color: rgb(7.8753142283%, 34.0070387129%, 31.8592257416%);
+  background-image: linear-gradient(rgb(10.5077928607%, 45.3745600804%, 42.5087983912%), rgb(7.8753142283%, 34.0070387129%, 31.8592257416%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-primary:hover, .btn-primary.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(18.1641025641, 78.4358974359, 73.4820512821);
-  background-image: linear-gradient(rgb(23.9179487179, 103.2820512821, 96.758974359), rgb(18.1641025641, 78.4358974359, 73.4820512821));
+  background-color: rgb(7.1231774761%, 30.7591754651%, 28.8164906988%);
+  background-image: linear-gradient(rgb(9.3795877325%, 40.5027652086%, 37.944695827%), rgb(7.1231774761%, 30.7591754651%, 28.8164906988%));
 }
 .btn-primary:active, .btn-primary.selected, .btn-primary.zeroclipboard-is-active {
-  background-color: rgb(17.2051282051, 74.2948717949, 69.6025641026);
+  background-color: rgb(6.7471091001%, 29.1352438411%, 27.2951231775%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-primary.selected:hover {
-  background-color: rgb(12.4102564103, 53.5897435897, 50.2051282051);
+  background-color: rgb(4.8667672197%, 21.0155857215%, 19.6882855706%);
 }
 
 .btn-purple {
   color: #fff;
-  background-color: rgb(87.0708860759, 56.8227848101, 205.9772151899);
-  background-image: linear-gradient(rgb(111.3227848101, 85.4430379747, 213.0569620253), rgb(87.0708860759, 56.8227848101, 205.9772151899));
+  background-color: rgb(34.14544552%, 22.2834450236%, 80.7753785058%);
+  background-image: linear-gradient(rgb(43.6559940432%, 33.5070737156%, 83.5517498138%), rgb(34.14544552%, 22.2834450236%, 80.7753785058%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-purple:hover, .btn-purple.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(81.0025316456, 50.0936708861, 202.5063291139);
-  background-image: linear-gradient(rgb(100.9291139241, 73.1772151899, 210.0227848101), rgb(81.0025316456, 50.0936708861, 202.5063291139));
+  background-color: rgb(31.7656986845%, 19.6445768181%, 79.4142467113%);
+  background-image: linear-gradient(rgb(39.5800446761%, 28.6969471333%, 82.3618763961%), rgb(31.7656986845%, 19.6445768181%, 79.4142467113%));
 }
 .btn-purple:active, .btn-purple.selected, .btn-purple.zeroclipboard-is-active {
-  background-color: rgb(79.3670886076, 49.082278481, 198.417721519);
+  background-color: rgb(31.1243484736%, 19.2479523455%, 77.8108711839%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-purple.selected:hover {
-  background-color: rgb(71.1898734177, 44.0253164557, 177.9746835443);
+  background-color: rgb(27.9175974187%, 17.2648299826%, 69.7939935468%);
 }
 
 .btn-blue {
   color: #fff;
-  background-color: rgb(20.0820512821, 86.7179487179, 81.241025641);
-  background-image: linear-gradient(rgb(26.7948717949, 115.7051282051, 108.3974358974), rgb(20.0820512821, 86.7179487179, 81.241025641));
+  background-color: rgb(7.8753142283%, 34.0070387129%, 31.8592257416%);
+  background-image: linear-gradient(rgb(10.5077928607%, 45.3745600804%, 42.5087983912%), rgb(7.8753142283%, 34.0070387129%, 31.8592257416%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-blue:hover, .btn-blue.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(18.1641025641, 78.4358974359, 73.4820512821);
-  background-image: linear-gradient(rgb(23.9179487179, 103.2820512821, 96.758974359), rgb(18.1641025641, 78.4358974359, 73.4820512821));
+  background-color: rgb(7.1231774761%, 30.7591754651%, 28.8164906988%);
+  background-image: linear-gradient(rgb(9.3795877325%, 40.5027652086%, 37.944695827%), rgb(7.1231774761%, 30.7591754651%, 28.8164906988%));
 }
 .btn-blue:active, .btn-blue.selected, .btn-blue.zeroclipboard-is-active {
-  background-color: rgb(17.2051282051, 74.2948717949, 69.6025641026);
+  background-color: rgb(6.7471091001%, 29.1352438411%, 27.2951231775%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-blue.selected:hover {
-  background-color: rgb(12.4102564103, 53.5897435897, 50.2051282051);
+  background-color: rgb(4.8667672197%, 21.0155857215%, 19.6882855706%);
 }
 
 .btn-green {
   color: #fff;
-  background-color: rgb(0, 111.8, 65.0639344262);
-  background-image: linear-gradient(rgb(0, 147.5, 85.8401639344), rgb(0, 111.8, 65.0639344262));
+  background-color: rgb(0%, 43.8431372549%, 25.5152684024%);
+  background-image: linear-gradient(rgb(0%, 57.8431372549%, 33.662809386%), rgb(0%, 43.8431372549%, 25.5152684024%));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 .btn-green:hover, .btn-green.zeroclipboard-is-hover {
   color: #fff;
-  background-color: rgb(0, 101.6, 59.1278688525);
-  background-image: linear-gradient(rgb(0, 132.2, 76.9360655738), rgb(0, 101.6, 59.1278688525));
+  background-color: rgb(0%, 39.8431372549%, 23.18739955%);
+  background-image: linear-gradient(rgb(0%, 51.8431372549%, 30.1710061074%), rgb(0%, 39.8431372549%, 23.18739955%));
 }
 .btn-green:active, .btn-green.selected, .btn-green.zeroclipboard-is-active {
-  background-color: rgb(0, 96.5, 56.1598360656);
+  background-color: rgb(0%, 37.8431372549%, 22.0234651238%);
   background-image: none;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 .btn-green.selected:hover {
-  background-color: rgb(0, 71, 41.3196721311);
+  background-color: rgb(0%, 27.8431372549%, 16.2037929926%);
 }
 
 .btn-reset {
