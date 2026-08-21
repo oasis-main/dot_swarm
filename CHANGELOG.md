@@ -4,6 +4,71 @@ All notable changes to dot_swarm are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed — `swarm gui` never worked (three defects, one endpoint)
+
+The dashboard shipped in v0.x and had zero test coverage, so nothing caught
+that its only data endpoint returned a 500 to every user on every platform.
+
+- `cli.py`'s gui handler referenced a bare `json`, but `cli.py` has no
+  module-level `import json` — every other command in the file does a local
+  `import json as _json`. So `GET /api/state.json` raised
+  `NameError: name 'json' is not defined` on the first request, always.
+- The failure was invisible because the error was raised *after*
+  `end_headers()`. `send_error()` writes a complete HTTP response of its
+  own, so the client received a 200 whose body began `HTTP/1.0 500 ...`.
+  The payload is now serialized before any header is written, so a failure
+  produces one clean 500.
+- `operations.get_colony_summary()` called `_fmt_ts`, which is defined in
+  `models.py` and was never imported into `operations.py`. Any division
+  holding a `claimed_at` or `done_at` timestamp — i.e. every division with
+  real history — raised `NameError` and was rendered as an error card. On
+  the oasis-x colony that was 4 of 29 divisions, including the org root and
+  the two largest queues.
+- `discover_divisions()` treated a git worktree's `.swarm/` (e.g. under
+  `.claude/worktrees/<name>/`) as a peer division of the repo it was cut
+  from, and would do the same for a vendored tree. New `is_division_copy()`
+  skips any division reached through a dot-directory or a vendored
+  directory name; `explore`, `descend`, `report` and the GUI all inherit it.
+- `swarm gui --open` passed `encoding='utf-8'` to `webbrowser.open()`,
+  which takes no such argument — collateral from the v2.0.0 Windows
+  encoding sweep, which rewrote a call that is not file I/O. The browser
+  never opened; a traceback printed from the thread.
+
+### Changed — the dashboard is self-contained and can write
+
+- **No external subresources.** The template pulled React, ReactDOM,
+  Babel-standalone and the Tailwind JIT from two CDNs, plus a Google
+  webfont, and transpiled JSX in the browser on every load. Offline that
+  rendered a blank page. Rewritten as plain DOM calls and hand-written CSS
+  in one 25 KB file: no CDN, no webfont, no build step, no vendored blobs.
+  `tests/test_gui_template.py` fails the build if a CDN reference returns.
+- **Write routes.** `POST /api/item/{add,claim,done,block,comment}` call
+  the same `operations.py` functions as the CLI, so a dashboard write
+  produces the same `queue.md` entry and the same append-only
+  `.swarm/claims/` record as the equivalent `swarm` command. This is the
+  first surface where a human can drive the protocol without the terminal.
+- **Bounded.** The server now binds `127.0.0.1` instead of every interface;
+  writes require a per-run token embedded in the page (`X-Swarm-Token`) and
+  are refused from a foreign `Origin`; a `division_path` outside the
+  discovered colony is refused; bodies are capped at 64 KB. The handler
+  moved from `SimpleHTTPRequestHandler` to `BaseHTTPRequestHandler`, which
+  removes the fall-through that served the process's working directory for
+  any unmatched path. `--read-only` serves the page with no token at all.
+- New `--read-only` and `--agent` options on `swarm gui`.
+
+### Added — tests for the GUI surface (308 → 334)
+
+- `tests/test_colony_summary.py` (7): the `_fmt_ts` regression, JSON
+  serializability of the payload the GUI serves, per-division error
+  isolation, and division-copy exclusion.
+- `tests/test_gui_template.py` (6): no external subresources, no known CDN
+  host, no JSX left behind.
+- `tests/test_gui_server.py` (13): a real `swarm gui` process driven over
+  real HTTP — add/claim/done round trip, the write landing in the claim
+  trail, and every refusal above.
+
 ## [2.0.0] — 2026-07-17
 
 The agent-identity release. Fixes a genuinely broken MCP server, replaces

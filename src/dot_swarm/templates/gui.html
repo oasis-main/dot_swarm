@@ -1,295 +1,610 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dot_swarm Dashboard</title>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .mono { font-family: 'Fira Code', monospace; }
-        .trail-line { border-left: 2px solid #334155; margin-left: 0.75rem; padding-left: 1.5rem; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dot_swarm Dashboard</title>
+<!--
+  Self-contained by design: no <script src>, no <link href>, no webfont.
+  `swarm gui` is a local operator tool that must work on a plane, behind a
+  corporate proxy, and inside an egress-blocked container. The previous
+  version pulled React, ReactDOM, Babel-standalone and the Tailwind JIT from
+  two CDNs and transpiled JSX in the browser on every load; offline that
+  rendered a blank page. Everything below is plain DOM + hand-written CSS.
+-->
+<style>
+:root {
+  --bg:        #0f172a;
+  --surface:   rgba(30, 41, 59, 0.5);
+  --surface-2: rgba(30, 41, 59, 0.85);
+  --border:    rgba(51, 65, 85, 0.6);
+  --text:      #f8fafc;
+  --dim:       #94a3b8;
+  --dimmer:    #64748b;
+  --dimmest:   #475569;
+  --bright:    #cbd5e1;
+  --blue:      #60a5fa;
+  --blue-mid:  #3b82f6;
+  --blue-deep: #2563eb;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: var(--mono); }
+.wrap { max-width: 80rem; margin: 0 auto; padding: 2rem 1.5rem; }
+.wrap-narrow { max-width: 56rem; margin: 0 auto; }
+.wrap-slim   { max-width: 40rem; margin: 0 auto; }
+
+/* ---------- header ---------- */
+header.top {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  flex-wrap: wrap; gap: 1rem; margin-bottom: 3rem;
+}
+.brand { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+.brand img { width: 2.5rem; height: 2.5rem; opacity: .8; }
+.brand h1 { font-size: 1.875rem; font-weight: 700; letter-spacing: -.025em; margin: 0; }
+.colony { color: var(--dim); font-size: .875rem; margin: 0; }
+.tabs {
+  display: flex; gap: .125rem; padding: .25rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: .5rem;
+}
+.tabs button {
+  padding: .375rem 1rem; border: 0; border-radius: .375rem; cursor: pointer;
+  background: transparent; color: var(--dim);
+  font: inherit; font-size: .875rem; font-weight: 500;
+  transition: background .15s, color .15s;
+}
+.tabs button:hover { color: var(--bright); }
+.tabs button[aria-selected="true"] {
+  background: var(--blue-deep); color: #fff;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .3);
+}
+
+/* ---------- cards ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: .75rem; overflow: hidden;
+}
+.card-hd {
+  display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+  padding: 1rem; background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.card-hd h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.grid {
+  display: grid; gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+}
+.div-card { cursor: pointer; transition: border-color .15s; }
+.div-card:hover, .div-card:focus-visible { border-color: rgba(59, 130, 246, .5); outline: none; }
+.div-card .body { padding: 1.25rem; }
+.div-card h3 {
+  margin: 0; font-size: 1.125rem; font-weight: 600;
+  display: flex; align-items: center; gap: .5rem;
+}
+.div-card .row1 {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: .5rem; margin-bottom: 1rem;
+}
+.focus-line {
+  color: var(--dim); font-size: .875rem; margin: 0 0 1rem;
+  min-height: 2.5rem;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.meta-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: .75rem; color: var(--dimmer);
+}
+
+/* ---------- badges ---------- */
+.badge {
+  display: inline-block; padding: .125rem .5rem; border-radius: .25rem;
+  border: 1px solid; font-size: .75rem; font-weight: 500; white-space: nowrap;
+}
+.badge.blue   { background: rgba(59,130,246,.1);  color: var(--blue);  border-color: rgba(59,130,246,.2); }
+.badge.green  { background: rgba(34,197,94,.1);   color: #4ade80;      border-color: rgba(34,197,94,.2); }
+.badge.yellow { background: rgba(234,179,8,.1);   color: #facc15;      border-color: rgba(234,179,8,.2); }
+.badge.red    { background: rgba(239,68,68,.1);   color: #f87171;      border-color: rgba(239,68,68,.2); }
+.badge.purple { background: rgba(168,85,247,.1);  color: #c084fc;      border-color: rgba(168,85,247,.2); }
+.badge.gray   { background: rgba(100,116,139,.1); color: var(--dim);   border-color: rgba(100,116,139,.2); }
+
+/* ---------- item rows ---------- */
+.item {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: .5rem 1rem; flex-wrap: wrap;
+  padding: .75rem; border-bottom: 1px solid rgba(51,65,85,.3);
+}
+.item:last-child { border-bottom: 0; }
+.item:hover { background: rgba(51,65,85,.2); }
+/* flex-basis 18rem: below that the controls drop to their own line rather
+   than squeezing the description into a two-word column */
+.item .left { display: flex; align-items: baseline; gap: .75rem; min-width: 0; flex: 1 1 18rem; }
+.item .id { font-family: var(--mono); font-size: .75rem; color: var(--dim); width: 5rem; flex: none; }
+.item .desc { font-size: .875rem; overflow-wrap: anywhere; }
+.item .right {
+  display: flex; align-items: center; gap: .5rem;
+  flex: 0 0 auto; margin-left: auto; flex-wrap: wrap; justify-content: flex-end;
+}
+.empty { padding: 2rem; text-align: center; color: var(--dimmer); font-size: .875rem; }
+
+/* ---------- trail ---------- */
+.commit { display: flex; gap: 1rem; }
+.rail { display: flex; flex-direction: column; align-items: center; flex: none; }
+.dot {
+  width: .75rem; height: .75rem; border-radius: 999px; margin-top: .375rem;
+  background: var(--blue-mid); box-shadow: 0 0 8px rgba(59,130,246,.5);
+}
+.rail .line { width: 2px; flex-grow: 1; background: #334155; margin: .25rem 0; }
+.commit .body { padding-bottom: 1.5rem; min-width: 0; }
+.commit .meta {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  font-size: .75rem; color: var(--dimmer); margin-bottom: .25rem;
+}
+.commit .meta .who { font-weight: 600; color: var(--bright); }
+.commit .msg {
+  font-size: .875rem; color: var(--bright); background: rgba(30,41,59,.3);
+  padding: .75rem; border-radius: .5rem; border: 1px solid var(--border);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* ---------- detail ---------- */
+.back {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--blue); font: inherit; font-size: .875rem; margin-bottom: 1rem;
+}
+.back:hover { color: #93c5fd; }
+.detail-hd {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem;
+}
+.detail-hd h2 { margin: 0 0 .5rem; font-size: 1.875rem; font-weight: 700; }
+.detail-hd .path { color: var(--dim); font-family: var(--mono); font-size: .75rem; margin: 0; }
+.cols { display: grid; grid-template-columns: 2fr 1fr; gap: 2rem; align-items: start; }
+@media (max-width: 60rem) { .cols { grid-template-columns: 1fr; } }
+section { margin-bottom: 2rem; }
+section > h3 {
+  font-size: .8125rem; font-weight: 600; color: var(--dimmer);
+  text-transform: uppercase; letter-spacing: .05em; margin: 0 0 1rem;
+}
+.focus-box {
+  background: rgba(59,130,246,.05); border: 1px solid rgba(59,130,246,.2);
+  padding: 1.5rem; border-radius: .75rem; font-size: 1.125rem;
+  color: #dbeafe; font-style: italic;
+}
+
+/* ---------- write controls ---------- */
+.actions { display: flex; gap: .375rem; flex: none; }
+.act {
+  padding: .1875rem .5rem; border-radius: .25rem; cursor: pointer;
+  border: 1px solid var(--border); background: rgba(51,65,85,.4);
+  color: var(--dim); font: inherit; font-size: .75rem; font-weight: 500;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.act:hover:not(:disabled) { color: var(--text); border-color: var(--dimmest); background: rgba(51,65,85,.8); }
+.act:disabled { opacity: .45; cursor: progress; }
+.act.danger:hover:not(:disabled) { color: #f87171; border-color: rgba(239,68,68,.4); }
+.act.go:hover:not(:disabled)     { color: #4ade80; border-color: rgba(34,197,94,.4); }
+
+.add-form { display: grid; grid-template-columns: 1fr auto auto; gap: .5rem; padding: 1rem; }
+@media (max-width: 44rem) { .add-form { grid-template-columns: 1fr; } }
+.add-form input, .add-form select {
+  padding: .5rem .625rem; border-radius: .375rem;
+  border: 1px solid var(--border); background: rgba(15,23,42,.6);
+  color: var(--text); font: inherit; font-size: .875rem;
+}
+.add-form input::placeholder { color: var(--dimmest); }
+.add-form input:focus, .add-form select:focus {
+  outline: none; border-color: var(--blue-mid);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+}
+.add-form button {
+  padding: .5rem 1rem; border-radius: .375rem; border: 0; cursor: pointer;
+  background: var(--blue-deep); color: #fff; font: inherit; font-size: .875rem; font-weight: 500;
+}
+.add-form button:hover:not(:disabled) { background: var(--blue-mid); }
+.add-form button:disabled { opacity: .5; cursor: progress; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%);
+  max-width: min(90vw, 34rem); padding: .75rem 1.25rem; border-radius: .5rem;
+  font-size: .875rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,.5); z-index: 50;
+}
+.toast.ok  { background: #14532d; border: 1px solid rgba(34,197,94,.4);  color: #dcfce7; }
+.toast.bad { background: #4c1d1d; border: 1px solid rgba(239,68,68,.4);  color: #fee2e2; }
+.readonly-note {
+  padding: .75rem 1rem; font-size: .8125rem; color: var(--dimmer);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---------- states ---------- */
+.center { display: flex; height: 100vh; align-items: center; justify-content: center; }
+.spinner {
+  width: 3rem; height: 3rem; border-radius: 999px;
+  border: 2px solid transparent; border-top-color: var(--blue-mid); border-bottom-color: var(--blue-mid);
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+.error-box {
+  max-width: 40rem; margin: 4rem auto; padding: 1.5rem;
+  background: rgba(239,68,68,.05); border: 1px solid rgba(239,68,68,.2); border-radius: .75rem;
+}
+.error-box h2 { margin: 0 0 .5rem; font-size: 1.125rem; }
+.error-box p  { margin: 0; color: var(--dim); font-size: .875rem; }
+.error-box code { font-family: var(--mono); color: #f87171; }
+</style>
 </head>
 <body>
-    <div id="root"></div>
+<div id="root"><div class="center"><div class="spinner"></div></div></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+<script>
+"use strict";
 
-        const Badge = ({ children, color = "blue" }) => {
-            const colors = {
-                blue: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-                green: "bg-green-500/10 text-green-400 border-green-500/20",
-                yellow: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-                red: "bg-red-500/10 text-red-400 border-red-500/20",
-                gray: "bg-slate-500/10 text-slate-400 border-slate-500/20",
-                purple: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-            };
-            return (
-                <span className={`px-2 py-0.5 rounded border text-xs font-medium ${colors[color]}`}>
-                    {children}
-                </span>
-            );
-        };
+// Injected by the `swarm gui` command at serve time. WRITE_TOKEN is empty
+// when the server was started with --read-only, which is what puts this
+// page into view-only mode.
+const WRITE_TOKEN = "__SWARM_WRITE_TOKEN__";
+const AGENT_ID = "__SWARM_AGENT_ID__";
+const CAN_WRITE = WRITE_TOKEN.length > 0;
 
-        const Card = ({ children, className = "" }) => (
-            <div className={`bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden ${className}`}>
-                {children}
-            </div>
-        );
+// --- tiny DOM helper: the whole "framework" -------------------------------
+// All text goes through createTextNode, so queue/state content is never
+// parsed as markup.
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const k in (attrs || {})) {
+    const v = attrs[k];
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2).toLowerCase(), v);
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat(Infinity)) {
+    if (c === null || c === undefined || c === false || c === "") continue;
+    n.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return n;
+}
 
-        const DivisionCard = ({ division, onSelect }) => {
-            const activeCount = division.queue?.active?.length || 0;
-            const pendingCount = division.queue?.pending?.length || 0;
-            const lastUpdate = division.state?.["Last touched"] || "unknown";
-            
-            return (
-                <Card className="hover:border-blue-500/50 transition-colors cursor-pointer group" >
-                    <div className="p-5" onClick={() => onSelect(division)}>
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="text-lg font-semibold flex items-center gap-2">
-                                {division.is_org && <span title="Organization Level">★</span>}
-                                {division.name}
-                            </h3>
-                            <Badge color={activeCount > 0 ? "green" : "gray"}>
-                                {activeCount} active
-                            </Badge>
-                        </div>
-                        <p className="text-slate-400 text-sm mb-4 line-clamp-2 min-h-[2.5rem]">
-                            {division.state?.["Current focus"] || "(no focus set)"}
-                        </p>
-                        <div className="flex justify-between items-center text-xs text-slate-500">
-                            <span className="mono">{lastUpdate.split(' by ')[0].replace('T', ' ').slice(0, 16)}</span>
-                            <span>{pendingCount} pending</span>
-                        </div>
-                    </div>
-                </Card>
-            );
-        };
+const PRIORITY_COLOR = { critical: "red", high: "yellow", medium: "blue", low: "gray" };
+const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
 
-        const ItemRow = ({ item, divisionName }) => {
-            const priorityColors = {
-                critical: "red",
-                high: "yellow",
-                medium: "blue",
-                low: "gray"
-            };
-            return (
-                <div className="p-3 border-b border-slate-700/30 last:border-0 hover:bg-slate-700/20 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                        <span className="mono text-xs text-slate-400 w-20">{item.id}</span>
-                        <span className="text-sm">{item.description}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {divisionName && <Badge color="purple">{divisionName}</Badge>}
-                        <Badge color={priorityColors[item.priority]}>{item.priority}</Badge>
-                    </div>
-                </div>
-            );
-        };
+function shortTime(s) {
+  if (!s) return "";
+  return String(s).split(" by ")[0].replace("T", " ").slice(0, 16);
+}
 
-        const TrailHistory = ({ history }) => (
-            <div className="space-y-6">
-                {history.map((commit, i) => (
-                    <div key={commit.sha} className="relative">
-                        <div className="flex gap-4">
-                            <div className="flex flex-col items-center">
-                                <div className="w-3 h-3 rounded-full bg-blue-500 mt-1.5 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
-                                {i !== history.length - 1 && <div className="w-0.5 flex-grow bg-slate-700 my-1"></div>}
-                            </div>
-                            <div className="pb-6">
-                                <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                                    <span className="font-semibold text-slate-300">{commit.author}</span>
-                                    <span>•</span>
-                                    <span className="mono">{commit.timestamp.replace('T', ' ').slice(0, 16)}</span>
-                                    <span>•</span>
-                                    <span className="mono text-slate-600">{commit.sha.slice(0, 7)}</span>
-                                </div>
-                                <div className="text-sm text-slate-300 bg-slate-800/30 p-3 rounded-lg border border-slate-700/50">
-                                    {commit.message}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        );
+// --- state ---------------------------------------------------------------
+const state = { data: null, error: null, tab: "overview", selected: null, busy: null };
 
-        const App = () => {
-            const [data, setData] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [selectedDiv, setSelectedDiv] = useState(null);
-            const [tab, setTab] = useState("overview");
+function setState(patch) {
+  Object.assign(state, patch);
+  render();
+}
 
-            useEffect(() => {
-                fetch('/api/state.json')
-                    .then(res => res.json())
-                    .then(d => {
-                        setData(d);
-                        setLoading(false);
-                    })
-                    .catch(e => console.error("Fetch failed", e));
-            }, []);
+// --- writes --------------------------------------------------------------
+let toastTimer = null;
 
-            const allItems = useMemo(() => {
-                if (!data) return [];
-                const items = [];
-                data.divisions.forEach(div => {
-                    if (div.queue) {
-                        div.queue.active.forEach(i => items.push({ ...i, divName: div.name, status: "active" }));
-                        div.queue.pending.forEach(i => items.push({ ...i, divName: div.name, status: "pending" }));
-                    }
-                });
-                return items.sort((a, b) => {
-                    const p = { critical: 0, high: 1, medium: 2, low: 3 };
-                    return p[a.priority] - p[b.priority];
-                });
-            }, [data]);
+function toast(message, ok) {
+  const existing = document.querySelector(".toast");
+  if (existing) existing.remove();
+  if (toastTimer) clearTimeout(toastTimer);
+  const t = el("div", { class: "toast " + (ok ? "ok" : "bad"), role: "status" }, message);
+  document.body.appendChild(t);
+  toastTimer = setTimeout(() => t.remove(), ok ? 3500 : 8000);
+}
 
-            const globalHistory = useMemo(() => {
-                if (!data) return [];
-                const h = [];
-                data.divisions.forEach(div => {
-                    if (div.history) {
-                        div.history.forEach(c => h.push({ ...c, divName: div.name }));
-                    }
-                });
-                return h.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 30);
-            }, [data]);
+async function post(action, payload) {
+  const res = await fetch("/api/item/" + action, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Swarm-Token": WRITE_TOKEN },
+    body: JSON.stringify(payload)
+  });
+  let out;
+  try { out = await res.json(); }
+  catch (e) { throw new Error("HTTP " + res.status + " " + res.statusText); }
+  if (!res.ok || !out.ok) throw new Error(out.error || ("HTTP " + res.status));
+  return out;
+}
 
-            if (loading) return (
-                <div className="flex h-screen items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-                </div>
-            );
+async function reloadState() {
+  const res = await fetch("/api/state.json");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  // keep the open detail view pointed at the same division
+  let selected = null;
+  if (state.selected) {
+    selected = data.divisions.find(d => d.path === state.selected.path) || null;
+  }
+  setState({ data: data, selected: selected, busy: null });
+  return data;
+}
 
-            return (
-                <div className="max-w-7xl mx-auto px-6 py-8">
-                    <header className="flex justify-between items-end mb-12">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <img src="/logo.png" className="w-10 h-10 opacity-80" onError={e => e.target.style.display='none'} />
-                                <h1 className="text-3xl font-bold tracking-tight">dot_swarm</h1>
-                            </div>
-                            <p className="text-slate-400 mono text-sm">Colony: {data.root.split('/').pop()}</p>
-                        </div>
-                        <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700/50">
-                            {["overview", "items", "history"].map(t => (
-                                <button 
-                                    key={t}
-                                    onClick={() => setTab(t)}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab === t ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
-                                >
-                                    {t.charAt(0).toUpperCase() + t.slice(1)}
-                                </button>
-                            ))}
-                        </div>
-                    </header>
+/** Run a write, then refresh from disk. `key` marks which control is busy. */
+async function act(key, action, payload, successPrefix) {
+  if (state.busy) return;
+  setState({ busy: key });
+  try {
+    const out = await post(action, payload);
+    await reloadState();
+    toast((successPrefix ? successPrefix + " " : "") + out.message, true);
+  } catch (e) {
+    setState({ busy: null });
+    toast(String(e.message || e), false);
+  }
+}
 
-                    {tab === "overview" && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {data.divisions.map(div => (
-                                <DivisionCard 
-                                    key={div.name} 
-                                    division={div} 
-                                    onSelect={(d) => { setSelectedDiv(d); setTab("detail"); }} 
-                                />
-                            ))}
-                        </div>
-                    )}
+// --- components ----------------------------------------------------------
+function Badge(text, color) {
+  return el("span", { class: "badge " + (color || "blue") }, text);
+}
 
-                    {tab === "items" && (
-                        <Card className="max-w-4xl mx-auto">
-                            <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex justify-between items-center">
-                                <h2 className="font-semibold">Global Priority Queue</h2>
-                                <span className="text-xs text-slate-500">{allItems.length} items total</span>
-                            </div>
-                            <div>
-                                {allItems.map(item => (
-                                    <ItemRow key={`${item.divName}-${item.id}`} item={item} divisionName={item.divName} />
-                                ))}
-                            </div>
-                        </Card>
-                    )}
+function DivisionCard(div) {
+  const active = (div.queue && div.queue.active || []).length;
+  const pending = (div.queue && div.queue.pending || []).length;
+  const st = div.state || {};
+  const open = () => setState({ selected: div, tab: "detail" });
 
-                    {tab === "history" && (
-                        <div className="max-w-2xl mx-auto pt-4">
-                            <TrailHistory history={globalHistory} />
-                        </div>
-                    )}
+  if (div.error) {
+    return el("div", { class: "card" },
+      el("div", { class: "body", style: "padding:1.25rem" },
+        el("div", { class: "row1" },
+          el("h3", null, div.name),
+          Badge("unreadable", "red")),
+        el("p", { class: "focus-line" }, div.error)));
+  }
 
-                    {tab === "detail" && selectedDiv && (
-                        <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
-                            <button onClick={() => setTab("overview")} className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1 mb-4">
-                                ← Back to Overview
-                            </button>
-                            
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <h2 className="text-3xl font-bold mb-2">{selectedDiv.name}</h2>
-                                    <p className="text-slate-400 mono text-xs">{selectedDiv.path}</p>
-                                </div>
-                                <Badge color={selectedDiv.is_org ? "purple" : "blue"}>
-                                    {selectedDiv.is_org ? "Organization" : "Division"}
-                                </Badge>
-                            </div>
+  return el("div", {
+      class: "card div-card", role: "button", tabindex: "0",
+      "aria-label": "Open division " + div.name,
+      onclick: open,
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }
+    },
+    el("div", { class: "body" },
+      el("div", { class: "row1" },
+        el("h3", null, div.is_org ? el("span", { title: "Organization level" }, "★") : null, div.name),
+        Badge(active + " active", active > 0 ? "green" : "gray")),
+      el("p", { class: "focus-line" }, st["Current focus"] || "(no focus set)"),
+      el("div", { class: "meta-row" },
+        el("span", { class: "mono" }, shortTime(st["Last touched"] || "unknown")),
+        el("span", null, pending + " pending"))));
+}
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                <div className="md:col-span-2 space-y-8">
-                                    <section>
-                                        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Current Focus</h3>
-                                        <div className="bg-blue-500/5 border border-blue-500/20 p-6 rounded-xl text-lg text-blue-100 italic">
-                                            "{selectedDiv.state?.["Current focus"] || "No focus set"}"
-                                        </div>
-                                    </section>
+const STATE_COLOR = {
+  OPEN: "gray", CLAIMED: "blue", PARTIAL: "blue", COMPETING: "yellow",
+  REVIEW: "yellow", BLOCKED: "red", DONE: "green", CANCELLED: "gray"
+};
 
-                                    <section>
-                                        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Active Items</h3>
-                                        <Card>
-                                            {selectedDiv.queue?.active?.length > 0 ? (
-                                                selectedDiv.queue.active.map(i => <ItemRow key={i.id} item={i} />)
-                                            ) : (
-                                                <div className="p-8 text-center text-slate-500 text-sm">No active items</div>
-                                            )}
-                                        </Card>
-                                    </section>
+/** Which write actions make sense for an item in this state. */
+function actionsFor(item, division) {
+  const st = item.state;
+  const key = division.path + "/" + item.id;
+  const busy = state.busy === key;
+  const base = { division_path: division.path, item_id: item.id };
+  const out = [];
 
-                                    <section>
-                                        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Pending Queue</h3>
-                                        <Card>
-                                            {selectedDiv.queue?.pending?.length > 0 ? (
-                                                selectedDiv.queue.pending.map(i => <ItemRow key={i.id} item={i} />)
-                                            ) : (
-                                                <div className="p-8 text-center text-slate-500 text-sm">Queue empty</div>
-                                            )}
-                                        </Card>
-                                    </section>
-                                </div>
+  if (st === "OPEN" || st === "BLOCKED") {
+    out.push(["Claim", "go", () => act(key, "claim", base, "")]);
+  }
+  if (st === "CLAIMED" || st === "PARTIAL" || st === "COMPETING" || st === "REVIEW") {
+    out.push(["Done", "go", () => act(key, "done", base, "")]);
+  }
+  if (st !== "DONE" && st !== "BLOCKED" && st !== "CANCELLED") {
+    out.push(["Block", "danger", () => {
+      const reason = prompt("Why is " + item.id + " blocked?");
+      if (reason && reason.trim()) act(key, "block", { ...base, reason: reason.trim() }, "");
+    }]);
+  }
+  out.push(["Comment", "", () => {
+    const body = prompt("Comment on " + item.id + " (as " + AGENT_ID + "):");
+    if (body && body.trim()) act(key, "comment", { ...base, body: body.trim() }, "");
+  }]);
 
-                                <div className="space-y-8">
-                                    <section>
-                                        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Pheromone Trail</h3>
-                                        {selectedDiv.history ? (
-                                            <TrailHistory history={selectedDiv.history.slice(0, 10)} />
-                                        ) : (
-                                            <p className="text-slate-500 text-sm">No history found</p>
-                                        )}
-                                    </section>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        };
+  return el("div", { class: "actions" },
+    out.map(([label, cls, onclick]) =>
+      el("button", {
+        class: "act " + cls,
+        disabled: busy || state.busy !== null,
+        title: label + " " + item.id,
+        onclick: onclick
+      }, label)));
+}
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+function ItemRow(item, division, showDivisionName) {
+  return el("div", { class: "item" },
+    el("div", { class: "left" },
+      el("span", { class: "id" }, item.id),
+      el("span", { class: "desc" }, item.description)),
+    el("div", { class: "right" },
+      showDivisionName && division ? Badge(division.name, "purple") : null,
+      item.state && item.state !== "OPEN"
+        ? Badge(item.state.toLowerCase(), STATE_COLOR[item.state] || "gray") : null,
+      Badge(item.priority, PRIORITY_COLOR[item.priority] || "gray"),
+      CAN_WRITE && division ? actionsFor(item, division) : null));
+}
+
+function TrailHistory(history) {
+  if (!history || !history.length) {
+    return el("p", { class: "empty" }, "No history found");
+  }
+  return el("div", null, history.map((c, i) =>
+    el("div", { class: "commit" },
+      el("div", { class: "rail" },
+        el("div", { class: "dot" }),
+        i !== history.length - 1 ? el("div", { class: "line" }) : null),
+      el("div", { class: "body" },
+        el("div", { class: "meta" },
+          el("span", { class: "who" }, c.author),
+          el("span", null, "•"),
+          el("span", { class: "mono" }, String(c.timestamp || "").replace("T", " ").slice(0, 16)),
+          el("span", null, "•"),
+          el("span", { class: "mono", style: "color:var(--dimmest)" }, String(c.sha || "").slice(0, 7))),
+        el("div", { class: "msg" }, c.message)))));
+}
+
+// --- views ---------------------------------------------------------------
+function Overview(data) {
+  return el("div", { class: "grid" }, data.divisions.map(DivisionCard));
+}
+
+function Items(data) {
+  const items = [];
+  data.divisions.forEach(div => {
+    if (!div.queue) return;
+    div.queue.active.forEach(i => items.push([i, div]));
+    div.queue.pending.forEach(i => items.push([i, div]));
+  });
+  items.sort((a, b) =>
+    (PRIORITY_ORDER[a[0].priority] ?? 9) - (PRIORITY_ORDER[b[0].priority] ?? 9));
+
+  return el("div", { class: "wrap-narrow" },
+    el("div", { class: "card" },
+      el("div", { class: "card-hd" },
+        el("h2", null, "Global Priority Queue"),
+        el("span", { style: "font-size:.75rem;color:var(--dimmer)" }, items.length + " items total")),
+      items.length
+        ? el("div", null, items.map(([i, div]) => ItemRow(i, div, true)))
+        : el("div", { class: "empty" }, "No open items")));
+}
+
+function History(data) {
+  const all = [];
+  data.divisions.forEach(div => (div.history || []).forEach(c => all.push(c)));
+  all.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return el("div", { class: "wrap-slim", style: "padding-top:1rem" }, TrailHistory(all.slice(0, 30)));
+}
+
+function AddItemForm(div) {
+  if (!CAN_WRITE) {
+    return el("div", { class: "card" },
+      el("div", { class: "readonly-note" },
+        "Read-only session. Restart without --read-only to add or change items."));
+  }
+  const key = div.path + "/+add";
+  const desc = el("input", {
+    type: "text", placeholder: "What needs doing?", "aria-label": "Item description",
+    maxlength: "500", disabled: state.busy !== null
+  });
+  const priority = el("select", { "aria-label": "Priority", disabled: state.busy !== null },
+    ["medium", "critical", "high", "low"].map(v => el("option", { value: v }, v)));
+  const submit = () => {
+    const description = desc.value.trim();
+    if (!description) { desc.focus(); return; }
+    act(key, "add", {
+      division_path: div.path,
+      description: description,
+      priority: priority.value
+    }, "");
+  };
+  const form = el("form", { class: "add-form", onsubmit: (e) => { e.preventDefault(); submit(); } },
+    desc, priority,
+    el("button", { type: "submit", disabled: state.busy !== null },
+      state.busy === key ? "Adding…" : "Add item"));
+
+  return el("div", { class: "card" }, form);
+}
+
+function Detail(div) {
+  const q = div.queue || { active: [], pending: [] };
+  const listOr = (items, emptyText) =>
+    el("div", { class: "card" },
+      items.length ? items.map(i => ItemRow(i, div, false)) : el("div", { class: "empty" }, emptyText));
+
+  return el("div", { class: "wrap-narrow" },
+    el("button", { class: "back", onclick: () => setState({ tab: "overview" }) }, "← Back to overview"),
+    el("div", { class: "detail-hd" },
+      el("div", null,
+        el("h2", null, div.name),
+        el("p", { class: "path" }, div.path)),
+      Badge(div.is_org ? "Organization" : "Division", div.is_org ? "purple" : "blue")),
+    el("div", { class: "cols" },
+      el("div", null,
+        el("section", null,
+          el("h3", null, "Current focus"),
+          el("div", { class: "focus-box" },
+            "“" + ((div.state && div.state["Current focus"]) || "No focus set") + "”")),
+        el("section", null,
+          el("h3", null, "Add to this queue"),
+          AddItemForm(div)),
+        el("section", null, el("h3", null, "Active items"), listOr(q.active, "No active items")),
+        el("section", null, el("h3", null, "Pending queue"), listOr(q.pending, "Queue empty"))),
+      el("div", null,
+        el("section", null,
+          el("h3", null, "Pheromone trail"),
+          TrailHistory((div.history || []).slice(0, 10))))));
+}
+
+// --- shell ---------------------------------------------------------------
+const TABS = ["overview", "items", "history"];
+
+// A colony without a logo.png 404s on every render otherwise — remember the
+// miss and stop asking.
+let logoMissing = false;
+
+function Header(data) {
+  let logo = null;
+  if (!logoMissing) {
+    logo = el("img", { src: "/logo.png", alt: "" });
+    logo.addEventListener("error", () => { logoMissing = true; logo.style.display = "none"; });
+  }
+
+  return el("header", { class: "top" },
+    el("div", null,
+      el("div", { class: "brand" }, logo, el("h1", null, "dot_swarm")),
+      el("p", { class: "colony mono" },
+        "Colony: " + String(data.root || "").split("/").pop()
+        + (CAN_WRITE ? "  ·  writing as " + AGENT_ID : "  ·  read-only"))),
+    el("div", { class: "tabs", role: "tablist" },
+      TABS.map(t => el("button", {
+        role: "tab",
+        "aria-selected": String(state.tab === t),
+        onclick: () => setState({ tab: t })
+      }, t.charAt(0).toUpperCase() + t.slice(1)))));
+}
+
+function render() {
+  const root = document.getElementById("root");
+  root.textContent = "";
+
+  if (state.error) {
+    root.appendChild(el("div", { class: "error-box" },
+      el("h2", null, "Could not load colony state"),
+      el("p", null, state.error),
+      el("p", { style: "margin-top:.75rem" },
+        "Check the terminal running ", el("code", null, "swarm gui"), ".")));
+    return;
+  }
+  if (!state.data) {
+    root.appendChild(el("div", { class: "center" }, el("div", { class: "spinner" })));
+    return;
+  }
+
+  const data = state.data;
+  const view =
+    state.tab === "items"   ? Items(data)   :
+    state.tab === "history" ? History(data) :
+    state.tab === "detail" && state.selected ? Detail(state.selected) :
+    Overview(data);
+
+  root.appendChild(el("div", { class: "wrap" }, Header(data), view));
+}
+
+// --- boot ----------------------------------------------------------------
+fetch("/api/state.json")
+  .then(res => {
+    if (!res.ok) throw new Error("HTTP " + res.status + " " + res.statusText);
+    return res.json();
+  })
+  .then(data => setState({ data: data }))
+  .catch(e => setState({ error: String(e.message || e) }));
+</script>
 </body>
 </html>

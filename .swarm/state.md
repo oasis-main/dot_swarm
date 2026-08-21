@@ -1,8 +1,8 @@
 # State — dot_swarm
 
-**Last touched**: 2026-07-17T18:23Z by claude-code
-**Current focus**: Mailbox — direct agent-to-agent messaging within one swarm
-**Active items**: SWC-052
+**Last touched**: 2026-08-20T19:25Z by human-Michaellee
+**Current focus**: swarm gui: fix the three defects that made the dashboard's only endpoint return 500, make the page s
+**Active items**: SWC-053
 **Blockers**: PyPI Trusted Publishing not yet configured (manual step for SWC-003)
 **Ready for pickup**: SWC-003, SWC-004, SWC-005, SWC-006, SWC-007, SWC-008, SWC-009, SWC-021, SWC-024, SWC-032, SWC-033, SWC-043, SWC-045
 

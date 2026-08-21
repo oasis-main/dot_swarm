@@ -23,7 +23,7 @@ from typing import Any, Iterator
 
 from .models import (
     Claim, ItemState, Priority, SwarmPaths, SwarmState, WorkItem,
-    _now_ts, _parse_ts, PRIORITY_ORDER, utcnow,
+    _fmt_ts, _now_ts, _parse_ts, PRIORITY_ORDER, utcnow,
 )
 
 
@@ -1090,8 +1090,36 @@ def _division_code_from_paths(paths: SwarmPaths) -> str:
     return _DIVISION_CODE_MAP.get(name, name.upper()[:4])
 
 
+# Directory names that hold COPIES of a division rather than a division:
+# vendored dependencies, and any dot-directory (which is where tooling parks
+# its scratch state — .claude/worktrees/<name>/ being the one that actually
+# bit us: a git worktree of a repo carries a full .swarm/ along with it, and
+# the copy would then be reported as a peer division of the repo it came from).
+_VENDOR_DIR_NAMES = frozenset({"node_modules", "site-packages", "venv"})
+
+
+def is_division_copy(root_path: Path, div_path: Path) -> bool:
+    """True if div_path sits under a vendored or tooling directory.
+
+    Only the components BETWEEN root_path and div_path are inspected, so a
+    root that itself lives under a dot-directory is not self-excluded.
+    """
+    try:
+        rel = div_path.relative_to(root_path)
+    except ValueError:
+        return False
+    return any(
+        part.startswith(".") or part in _VENDOR_DIR_NAMES
+        for part in rel.parts
+    )
+
+
 def discover_divisions(root_path: Path, depth: int = 2) -> list[tuple[Path, SwarmPaths]]:
-    """Recursively find all .swarm/ directories in the subtree."""
+    """Recursively find all .swarm/ directories in the subtree.
+
+    Skips copies of a division (git worktrees under .claude/, vendored trees)
+    — see is_division_copy().
+    """
     divisions: list[tuple[Path, SwarmPaths]] = []
 
     # 1. Check root
@@ -1110,6 +1138,8 @@ def discover_divisions(root_path: Path, depth: int = 2) -> list[tuple[Path, Swar
         for p in root_path.glob(pattern):
             div_path = p.parent
             if div_path == root_path:
+                continue
+            if is_division_copy(root_path, div_path):
                 continue
             paths = SwarmPaths.from_swarm_dir(p)
             if paths and (div_path, paths) not in divisions:

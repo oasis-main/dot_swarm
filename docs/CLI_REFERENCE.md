@@ -101,6 +101,46 @@ swarm ready --json     # machine-readable JSON array (for agent scripts)
 Only items in the `Pending` section with state `OPEN` whose entire `depends:` chain
 appears in the `Done` section are shown. Items with no dependencies are always listed.
 
+### `swarm gui`
+
+Serve the colony as a browsable, editable web page on `127.0.0.1`. Reads every
+`.swarm/` division under `--path` and renders four views: a division overview, the
+global priority queue sorted across every division, the combined commit trail, and a
+per-division detail page.
+
+```bash
+swarm gui                          # http://127.0.0.1:8000
+swarm gui --port 9000 --open       # different port, open the browser
+swarm gui --read-only              # serve the page without write routes
+swarm gui --agent alice            # attribute writes to a specific agent
+swarm --path ~/org gui             # serve a colony you are not standing in
+```
+
+The page is **self-contained** — no CDN, no webfont, no build step. It renders with
+no network access at all, which is the point: `swarm gui` is a local operator tool
+that has to work on a plane, behind a proxy, and inside an egress-blocked container.
+
+**Writing from the page.** Add, claim, complete, block and comment go through the same
+`operations.py` calls the CLI uses. A write from the dashboard produces the same
+`queue.md` entry and the same append-only record in `.swarm/claims/` as the equivalent
+`swarm` command — there is no separate storage path and no translation layer, so a
+human working in the browser and an agent working over MCP are editing one queue.
+
+**What bounds a write:**
+
+| Control | Behaviour |
+|---|---|
+| Bind address | `127.0.0.1` only — never published to other interfaces |
+| Write token | Random per run, embedded in the page at serve time, required in the `X-Swarm-Token` header. A page from another site cannot read it, and setting a custom header forces a CORS preflight this server does not answer. |
+| `Origin` check | A request carrying a foreign `Origin` is refused with 403 |
+| Division allow-list | The `division_path` in a request must already be a discovered division. A path outside the colony is refused. |
+| Body limit | 64 KB |
+| Static files | Only `/`, `/api/state.json` and `/logo.png` are served. Every other path is a 404 — the handler never falls through to serving the working directory. |
+| `--read-only` | No token is embedded, and every write route answers 403 |
+
+Requests are handled one at a time, so the dashboard never mutates two items
+concurrently. `claim` additionally takes the same per-item lock the CLI takes.
+
 ---
 
 ## Work Item Lifecycle

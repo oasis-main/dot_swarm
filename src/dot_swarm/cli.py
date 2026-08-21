@@ -12,10 +12,12 @@ import click
 
 from .models import ItemState, Priority, SwarmPaths, utcnow
 from .operations import (
+    ClaimLockTimeout,
     add_item, append_memory, audit, block_item, claim_item, crawl_directory,
     done_item, next_item_id, partial_item, ready_items, reopen_item,
     read_queue, read_state, write_queue, write_state, _division_code_from_paths,
     discover_divisions, find_parent_paths, get_alignment, get_colony_summary,
+    is_division_copy,
 )
 
 
@@ -1592,62 +1594,242 @@ def workflow_create(ctx: click.Context, name: str, pattern: str, trigger: str, d
 @cli.command(name="gui")
 @click.option("--port", default=8000, help="Port to run the dashboard on (default: 8000)")
 @click.option("--open", "open_browser", is_flag=True, default=False, help="Open browser automatically")
+@click.option("--read-only", is_flag=True, default=False,
+              help="Serve the dashboard without write routes (view but do not edit)")
+@click.option("--agent", default=None, help="Agent ID for writes (default: $SWARM_AGENT_ID or human-$USER)")
 @click.pass_context
-def gui(ctx: click.Context, port: int, open_browser: bool) -> None:
-    """Start the visual Swarm Trail dashboard."""
+def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
+        agent: str | None) -> None:
+    """Start the visual Swarm Trail dashboard.
+
+    Reads every .swarm/ division under --path and serves a single
+    self-contained page: colony overview, global priority queue, commit
+    trail, and a per-division detail view.
+
+    The dashboard can also WRITE. Adding, claiming, completing, blocking and
+    commenting on items go through the same operations the CLI uses, so the
+    claim trail, the per-item lock and the signing path are identical
+    whichever surface you drive. Pass --read-only to serve a view-only page.
+
+    Binds to 127.0.0.1 only. Writes require a per-run token that is embedded
+    in the page at start, so another site open in your browser cannot POST
+    to this server.
+    """
     import http.server
+    import json as _json
+    import secrets
     import socketserver
     import webbrowser
     from threading import Thread
 
+    from .comments import add_comment
+
     root_path = Path(ctx.obj["path"]).resolve()
     template_path = Path(__file__).parent / "templates" / "gui.html"
-    
+
     if not template_path.exists():
         click.echo(f"Error: GUI template not found at {template_path}", err=True)
         return
 
-    class SwarmHandler(http.server.SimpleHTTPRequestHandler):
+    agent_id = agent or _default_agent()
+    token = secrets.token_urlsafe(32)
+    origins = {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
+    MAX_BODY = 64 * 1024
+
+    def _divisions() -> dict[str, SwarmPaths]:
+        """Writable divisions, keyed by resolved path.
+
+        Rebuilt per request so a division created while the server runs is
+        picked up. Keying on the path (not the name) both disambiguates
+        same-named divisions and is what bounds a write to the colony: a
+        path the client sends is only honoured if it is already in here.
+        """
+        found = {str(d.resolve()): pths for d, pths in discover_divisions(root_path, depth=3)}
+        if SwarmPaths.find(root_path):
+            found.setdefault(str(root_path), SwarmPaths.find(root_path))
+        return found
+
+    class SwarmHandler(http.server.BaseHTTPRequestHandler):
+        # BaseHTTPRequestHandler, not SimpleHTTPRequestHandler: the latter
+        # falls through to serving the process's working directory for any
+        # unmatched path, which hands out arbitrary local files.
+        server_version = "dot_swarm"
+        sys_version = ""
+
+        # -- helpers ----------------------------------------------------
+        def _send(self, code: int, body: bytes, content_type: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_json(self, code: int, obj: dict) -> None:
+            self._send(code, _json.dumps(obj).encode("utf-8"), "application/json")
+
+        def _reject_cross_origin(self) -> bool:
+            """True if the request was rejected and a response already sent."""
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in origins:
+                self._send_json(403, {"ok": False, "error": "cross-origin request refused"})
+                return True
+            if self.headers.get("X-Swarm-Token") != token:
+                self._send_json(403, {"ok": False, "error": "missing or bad write token — reload the page"})
+                return True
+            return False
+
+        def _read_json(self) -> dict | None:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                self._send_json(400, {"ok": False, "error": "bad Content-Length"})
+                return None
+            if length > MAX_BODY:
+                self._send_json(413, {"ok": False, "error": "request body too large"})
+                return None
+            try:
+                body = _json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            except (ValueError, UnicodeDecodeError) as e:
+                self._send_json(400, {"ok": False, "error": f"malformed JSON: {e}"})
+                return None
+            if not isinstance(body, dict):
+                self._send_json(400, {"ok": False, "error": "expected a JSON object"})
+                return None
+            return body
+
+        # -- GET --------------------------------------------------------
         def do_GET(self):
             if self.path == "/api/state.json":
+                # Serialize BEFORE writing any header. send_error() emits a
+                # complete HTTP response of its own, so calling it after
+                # end_headers() concatenates a second response into the body
+                # and the client sees "HTTP/1.0 500 ..." where JSON should be.
                 try:
-                    data = get_colony_summary(root_path)
-                    self.send_response(200)
-                    self.send_header("Content-type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps(data).encode())
+                    payload = _json.dumps(get_colony_summary(root_path)).encode("utf-8")
                 except Exception as e:
-                    self.send_error(500, str(e))
-            elif self.path == "/" or self.path == "/index.html":
-                self.send_response(200)
-                self.send_header("Content-type", "text/html")
-                self.end_headers()
-                self.wfile.write(template_path.read_bytes())
+                    self._send_json(500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+                    return
+                self._send(200, payload, "application/json")
+
+            elif self.path in ("/", "/index.html"):
+                html = template_path.read_text(encoding="utf-8")
+                html = html.replace("__SWARM_WRITE_TOKEN__", "" if read_only else token)
+                html = html.replace("__SWARM_AGENT_ID__", agent_id)
+                self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
             elif self.path == "/logo.png":
                 logo = root_path / "logo.png"
                 if not logo.exists():
                     logo = Path(__file__).parent.parent.parent / "logo.png"
                 if logo.exists():
-                    self.send_response(200)
-                    self.send_header("Content-type", "image/png")
-                    self.end_headers()
-                    self.wfile.write(logo.read_bytes())
+                    self._send(200, logo.read_bytes(), "image/png")
                 else:
-                    self.send_error(404)
+                    self._send(404, b"no logo", "text/plain; charset=utf-8")
+
             else:
-                super().do_GET()
+                self._send(404, b"not found", "text/plain; charset=utf-8")
+
+        # -- POST -------------------------------------------------------
+        def do_POST(self):
+            if not self.path.startswith("/api/item/"):
+                self._send_json(404, {"ok": False, "error": "no such endpoint"})
+                return
+            if read_only:
+                self._send_json(403, {"ok": False, "error": "server started with --read-only"})
+                return
+            if self._reject_cross_origin():
+                return
+
+            body = self._read_json()
+            if body is None:
+                return
+
+            div_key = str(Path(str(body.get("division_path", ""))).resolve())
+            paths = _divisions().get(div_key)
+            if paths is None:
+                self._send_json(400, {"ok": False, "error": "unknown division — reload the page"})
+                return
+
+            action = self.path[len("/api/item/"):]
+            who = str(body.get("agent") or agent_id).strip() or agent_id
+            item_id = str(body.get("item_id") or "").strip()
+
+            try:
+                if action == "add":
+                    description = str(body.get("description") or "").strip()
+                    if not description:
+                        raise ValueError("description is required")
+                    raw_priority = str(body.get("priority") or "medium").lower()
+                    try:
+                        priority = Priority(raw_priority)
+                    except ValueError:
+                        raise ValueError(f"unknown priority {raw_priority!r}")
+                    item = add_item(
+                        paths,
+                        description,
+                        priority=priority,
+                        project=str(body.get("project") or "misc").strip() or "misc",
+                        notes=str(body.get("notes") or "").strip(),
+                    )
+                    result = {"item_id": item.id, "message": f"Added {item.id}"}
+
+                elif action == "claim":
+                    item = claim_item(paths, item_id, who)
+                    result = {"item_id": item.id, "message": f"{item.id} claimed by {who}"}
+
+                elif action == "done":
+                    item = done_item(paths, item_id, who, note=str(body.get("note") or "").strip())
+                    result = {"item_id": item.id, "message": f"{item.id} marked done"}
+
+                elif action == "block":
+                    reason = str(body.get("reason") or "").strip()
+                    if not reason:
+                        raise ValueError("a blocking reason is required")
+                    item = block_item(paths, item_id, reason)
+                    result = {"item_id": item.id, "message": f"{item.id} blocked"}
+
+                elif action == "comment":
+                    text = str(body.get("body") or "").strip()
+                    if not text:
+                        raise ValueError("comment body is required")
+                    c = add_comment(paths, item_id, who, text)
+                    result = {"item_id": item_id, "comment_id": c.comment_id,
+                              "message": f"Comment added to {item_id}"}
+
+                else:
+                    self._send_json(404, {"ok": False, "error": f"no such action {action!r}"})
+                    return
+
+            except ValueError as e:
+                # domain errors: unknown item, already claimed, bad priority
+                self._send_json(400, {"ok": False, "error": str(e)})
+                return
+            except ClaimLockTimeout as e:
+                self._send_json(409, {"ok": False, "error": str(e)})
+                return
+            except Exception as e:
+                self._send_json(500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+                return
+
+            click.echo(f"  {result['message']}")
+            self._send_json(200, {"ok": True, **result})
 
         def log_message(self, format, *args):
-            # Silence standard logging to keep CLI clean
+            # Silence per-request logging to keep the CLI output clean;
+            # write results are echoed explicitly above.
             pass
 
-    click.echo(f"\nStarting dot_swarm GUI on http://localhost:{port}")
+    mode = "read-only" if read_only else f"read-write as {agent_id}"
+    click.echo(f"\nStarting dot_swarm GUI on http://127.0.0.1:{port}  ({mode})")
     click.echo("Press Ctrl+C to stop.\n")
-    
-    if open_browser:
-        Thread(target=lambda: webbrowser.open(f"http://localhost:{port}", encoding='utf-8')).start()
 
-    with socketserver.TCPServer(("", port), SwarmHandler) as httpd:
+    if open_browser:
+        Thread(target=lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+
+    # Bind to loopback only. The dashboard can mutate the queue; "" would
+    # publish that to every interface on the machine's network.
+    with socketserver.TCPServer(("127.0.0.1", port), SwarmHandler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
@@ -1694,7 +1876,7 @@ def report_cmd(ctx: click.Context, out_path: str | None, only_section: str,
         divisions.append((root_path, root_paths))
     for p in root_path.glob("*/.swarm"):
         div_path = p.parent
-        if div_path == root_path:
+        if div_path == root_path or is_division_copy(root_path, div_path):
             continue
         paths_obj = SwarmPaths.find(div_path)
         if paths_obj:
@@ -1702,6 +1884,8 @@ def report_cmd(ctx: click.Context, out_path: str | None, only_section: str,
     if depth > 1:
         for p in root_path.glob("*/*/.swarm"):
             div_path = p.parent
+            if is_division_copy(root_path, div_path):
+                continue
             paths_obj = SwarmPaths.find(div_path)
             if paths_obj and (div_path, paths_obj) not in divisions:
                 divisions.append((div_path, paths_obj))
