@@ -131,6 +131,11 @@ Reload the tab freely. A new tab needs the printed URL again.
 Every `/api/` route needs that token in the `X-Swarm-Token` header, a read as
 much as a write. Drive the server from a script by sending the same header.
 
+A supervisor process that starts `swarm gui` and links to it (for example a
+fleet observatory) can choose the token with the `SWARM_GUI_TOKEN` environment
+variable: at least 32 characters from `A-Z a-z 0-9 - _`. Any other value stops
+the command with exit code 2. Without the variable, each run makes a random token.
+
 The page is **self-contained** — no CDN, no webfont, no build step. It renders with
 no network access at all, which is the point: `swarm gui` is a local operator tool
 that has to work on a plane, behind a proxy, and inside an egress-blocked container.

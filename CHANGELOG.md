@@ -42,9 +42,12 @@ Fixed:
   `localhost:PORT` answers 421.
 - `--read-only` still refuses every write with 403, and now also requires
   the session token on a read.
+- New `SWARM_GUI_TOKEN` environment variable. A supervisor process that
+  starts the dashboard and links to it can choose the token (at least 32
+  characters from `A-Z a-z 0-9 - _`; anything else exits with code 2).
 
 `tests/test_gui_server.py` and `tests/test_gui_template.py` grew from 19 to
-29 tests, covering: no token in `GET /`, `state.json` without a token,
+34 tests, covering: no token in `GET /`, `state.json` without a token,
 `state.json` with a wrong token, a write with no `Origin`, a wrong `Host` on
 a read and on a write, and both accepted `Host` values.
 

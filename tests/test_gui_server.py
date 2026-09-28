@@ -111,14 +111,14 @@ def colony(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _start(colony: Path, *extra: str) -> Server:
+def _start(colony: Path, *extra: str, env: dict | None = None) -> Server:
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
         [sys.executable, "-c", "from dot_swarm.cli import cli; cli(obj={})",
          "--path", str(colony), "gui", "--port", str(port), *extra],
         cwd=str(colony), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, env=_env(),
+        text=True, env={**_env(), **(env or {})},
     )
     # The token is printed, not served. Drain stdout on a thread so the
     # pipe never fills and the server never blocks on its own output.
@@ -409,3 +409,34 @@ def test_read_only_mode_serves_but_refuses_writes(readonly_server: Server) -> No
                         {"X-Swarm-Token": "anything", "Origin": readonly_server.base})
     assert status == 403 and not out["ok"]
     assert "read-only" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# A supervisor chooses the token (SWARM_GUI_TOKEN)
+# ---------------------------------------------------------------------------
+
+def test_supervisor_can_choose_the_token(colony: Path) -> None:
+    """A fleet observatory starts `swarm gui` and links to it, so the
+    observatory must know the token without parsing terminal text."""
+    chosen = "S" * 40
+    s = _start(colony, env={"SWARM_GUI_TOKEN": chosen})
+    try:
+        assert s.token == chosen
+        assert _get(s.base + "/api/state.json", {"X-Swarm-Token": chosen})[0] == 200
+        status, html = _get(s.base + "/")
+        assert status == 200 and chosen not in html
+    finally:
+        s.proc.kill()
+        s.proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("bad", ["short-token", "x" * 31, "a" * 40 + " b", "a" * 40 + "#"])
+def test_a_weak_or_malformed_supervisor_token_is_refused(colony: Path, bad: str) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-c", "from dot_swarm.cli import cli; cli(obj={})",
+         "--path", str(colony), "gui", "--port", str(_free_port())],
+        cwd=str(colony), capture_output=True, text=True, timeout=30,
+        env={**_env(), "SWARM_GUI_TOKEN": bad},
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "SWARM_GUI_TOKEN" in proc.stderr

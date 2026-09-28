@@ -1636,9 +1636,15 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
       Origin.
 
     Use --read-only to refuse every write. A read still requires the token.
+
+    A supervisor process (for example a fleet observatory that links to this
+    dashboard) can set SWARM_GUI_TOKEN to choose the token. The value must be
+    at least 32 characters from A-Z, a-z, 0-9, "-" and "_". Without it, the
+    CLI makes a random token for each run.
     """
     import http.server
     import json as _json
+    import re
     import secrets
     import socketserver
     import webbrowser
@@ -1654,7 +1660,11 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
         return
 
     agent_id = agent or _default_agent()
-    token = secrets.token_urlsafe(32)
+    token = os.environ.get("SWARM_GUI_TOKEN") or secrets.token_urlsafe(32)
+    if len(token) < 32 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+        click.echo("Error: SWARM_GUI_TOKEN must be at least 32 characters "
+                   "from A-Z, a-z, 0-9, '-' and '_'.", err=True)
+        raise SystemExit(2)
     token_bytes = token.encode("ascii")
     origins = {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
