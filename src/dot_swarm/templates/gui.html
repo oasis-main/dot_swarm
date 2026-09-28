@@ -248,12 +248,41 @@ section > h3 {
 <script>
 "use strict";
 
-// Injected by the `swarm gui` command at serve time. WRITE_TOKEN is empty
-// when the server was started with --read-only, which is what puts this
-// page into view-only mode.
-const WRITE_TOKEN = "__SWARM_WRITE_TOKEN__";
+// Injected by the `swarm gui` command at serve time. Neither value is a
+// secret, so both can sit in the page body.
+const READ_ONLY = "__SWARM_READ_ONLY__" === "true";
 const AGENT_ID = "__SWARM_AGENT_ID__";
-const CAN_WRITE = WRITE_TOKEN.length > 0;
+const CAN_WRITE = !READ_ONLY;
+
+// The session token is NOT in the page. GET / cannot be authenticated, so a
+// token in the page body goes to every local client that asks. `swarm gui`
+// prints a URL that carries the token in the fragment: /#t=TOKEN. A browser
+// never sends a fragment to a server. This page reads the token once, keeps
+// the token in sessionStorage for this tab only, then clears the address bar
+// so the token stays out of history, bookmarks and screenshots.
+const TOKEN_KEY = "dot_swarm.gui.token";
+const TOKEN_HELP =
+  "This tab has no session token. Open the URL that `swarm gui` printed in "
+  + "the terminal. That URL ends with #t=...";
+
+function readSessionToken() {
+  const hash = String(location.hash || "").replace(/^#/, "");
+  const match = /(?:^|&)t=([^&]*)/.exec(hash);
+  if (match) {
+    const fromUrl = decodeURIComponent(match[1]);
+    try { sessionStorage.setItem(TOKEN_KEY, fromUrl); } catch (e) { /* storage blocked */ }
+    history.replaceState(null, "", location.pathname + location.search);
+    return fromUrl;
+  }
+  try { return sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+
+let TOKEN = readSessionToken();
+
+function forgetSessionToken() {
+  TOKEN = "";
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* storage blocked */ }
+}
 
 // --- tiny DOM helper: the whole "framework" -------------------------------
 // All text goes through createTextNode, so queue/state content is never
@@ -305,9 +334,13 @@ function toast(message, ok) {
 async function post(action, payload) {
   const res = await fetch("/api/item/" + action, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Swarm-Token": WRITE_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Swarm-Token": TOKEN },
     body: JSON.stringify(payload)
   });
+  if (res.status === 401) {
+    forgetSessionToken();
+    throw new Error(TOKEN_HELP);
+  }
   let out;
   try { out = await res.json(); }
   catch (e) { throw new Error("HTTP " + res.status + " " + res.statusText); }
@@ -315,10 +348,19 @@ async function post(action, payload) {
   return out;
 }
 
+/** GET an API route with the session token attached. */
+async function apiGet(path) {
+  const res = await fetch(path, { headers: { "X-Swarm-Token": TOKEN } });
+  if (res.status === 401) {
+    forgetSessionToken();
+    throw new Error(TOKEN_HELP);
+  }
+  if (!res.ok) throw new Error("HTTP " + res.status + " " + res.statusText);
+  return res.json();
+}
+
 async function reloadState() {
-  const res = await fetch("/api/state.json");
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  const data = await res.json();
+  const data = await apiGet("/api/state.json");
   // keep the open detail view pointed at the same division
   let selected = null;
   if (state.selected) {
@@ -598,13 +640,13 @@ function render() {
 }
 
 // --- boot ----------------------------------------------------------------
-fetch("/api/state.json")
-  .then(res => {
-    if (!res.ok) throw new Error("HTTP " + res.status + " " + res.statusText);
-    return res.json();
-  })
-  .then(data => setState({ data: data }))
-  .catch(e => setState({ error: String(e.message || e) }));
+if (!TOKEN) {
+  setState({ error: TOKEN_HELP });
+} else {
+  apiGet("/api/state.json")
+    .then(data => setState({ data: data }))
+    .catch(e => setState({ error: String(e.message || e) }));
+}
 </script>
 </body>
 </html>

@@ -61,3 +61,27 @@ def test_no_jsx_left_behind(html: str) -> None:
 
 def test_fetches_the_state_endpoint(html: str) -> None:
     assert "/api/state.json" in html
+
+
+def test_no_write_token_placeholder(html: str) -> None:
+    """The page must not carry the session token.
+
+    `GET /` cannot be authenticated, because a browser navigation sends no
+    header. A token substituted into the page body therefore goes to every
+    local client that asks for the page.
+    """
+    assert "__SWARM_WRITE_TOKEN__" not in html
+    assert "WRITE_TOKEN" not in html
+
+
+def test_reads_the_token_from_the_url_fragment(html: str) -> None:
+    """`swarm gui` prints /#t=TOKEN. A browser never sends a fragment."""
+    assert "location.hash" in html
+    assert "sessionStorage" in html
+    assert "history.replaceState" in html
+
+
+def test_sends_the_token_on_reads_and_writes(html: str) -> None:
+    assert re.search(r'"X-Swarm-Token"\s*:\s*TOKEN', html), "writes must send the token"
+    assert 'fetch(path, { headers: { "X-Swarm-Token": TOKEN } })' in html, \
+        "reads must send the token"
