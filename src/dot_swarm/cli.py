@@ -1611,12 +1611,40 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
     claim trail, the per-item lock and the signing path are identical
     whichever surface you drive. Pass --read-only to serve a view-only page.
 
-    Binds to 127.0.0.1 only. Writes require a per-run token that is embedded
-    in the page at start, so another site open in your browser cannot POST
-    to this server.
+    Binds to 127.0.0.1 only. The loopback address is not a trust boundary
+    on this machine. Every local process can reach this port. A Docker
+    container can also reach this port, because Docker Desktop forwards
+    host.docker.internal to the loopback address of the host. So the server
+    requires a per-run token on every API route, for a read and for a write.
+
+    The CLI prints the dashboard URL with the token in the URL fragment:
+    http://127.0.0.1:PORT/#t=TOKEN. A browser never sends the fragment to a
+    server, so GET / carries no token and gives no token away. The page
+    reads the token from the fragment, keeps the token in sessionStorage for
+    that one tab, and then clears the address bar.
+
+    Three checks run on each request:
+
+    - The Host header must be 127.0.0.1:PORT or localhost:PORT. This check
+      refuses a DNS rebinding attack, which points a hostile name at the
+      loopback address. The server answers HTTP 421.
+    - The X-Swarm-Token header must match the token of this run. The server
+      answers HTTP 401.
+    - A write must carry an Origin header of this same server. The server
+      refuses an absent Origin and a foreign Origin with HTTP 403. A browser
+      always sends Origin on a POST. A client that is not a browser sends no
+      Origin.
+
+    Use --read-only to refuse every write. A read still requires the token.
+
+    A supervisor process (for example a fleet observatory that links to this
+    dashboard) can set SWARM_GUI_TOKEN to choose the token. The value must be
+    at least 32 characters from A-Z, a-z, 0-9, "-" and "_". Without it, the
+    CLI makes a random token for each run.
     """
     import http.server
     import json as _json
+    import re
     import secrets
     import socketserver
     import webbrowser
@@ -1632,8 +1660,14 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
         return
 
     agent_id = agent or _default_agent()
-    token = secrets.token_urlsafe(32)
+    token = os.environ.get("SWARM_GUI_TOKEN") or secrets.token_urlsafe(32)
+    if len(token) < 32 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+        click.echo("Error: SWARM_GUI_TOKEN must be at least 32 characters "
+                   "from A-Z, a-z, 0-9, '-' and '_'.", err=True)
+        raise SystemExit(2)
+    token_bytes = token.encode("ascii")
     origins = {f"http://localhost:{port}", f"http://127.0.0.1:{port}"}
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     MAX_BODY = 64 * 1024
 
     def _divisions() -> dict[str, SwarmPaths]:
@@ -1668,14 +1702,49 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
         def _send_json(self, code: int, obj: dict) -> None:
             self._send(code, _json.dumps(obj).encode("utf-8"), "application/json")
 
-        def _reject_cross_origin(self) -> bool:
-            """True if the request was rejected and a response already sent."""
-            origin = self.headers.get("Origin")
-            if origin is not None and origin not in origins:
-                self._send_json(403, {"ok": False, "error": "cross-origin request refused"})
+        def _reject_bad_host(self) -> bool:
+            """True if the Host header is not this server; response sent.
+
+            A hostile DNS name that resolves to 127.0.0.1 (a DNS rebinding
+            attack) arrives here with that name in the Host header. The
+            browser treats that name as a separate origin, so the browser
+            sends the request. This check refuses it.
+            """
+            if (self.headers.get("Host") or "") not in hosts:
+                self._send_json(421, {"ok": False,
+                                      "error": "misdirected request — unexpected Host header"})
                 return True
-            if self.headers.get("X-Swarm-Token") != token:
-                self._send_json(403, {"ok": False, "error": "missing or bad write token — reload the page"})
+            return False
+
+        def _reject_bad_token(self) -> bool:
+            """True if X-Swarm-Token is absent or wrong; response sent.
+
+            Compare bytes, not str. compare_digest() rejects a str that
+            holds a character above U+007F, and a header is client input.
+            """
+            supplied = (self.headers.get("X-Swarm-Token") or "").encode("utf-8", "replace")
+            if not secrets.compare_digest(supplied, token_bytes):
+                self._send_json(401, {
+                    "ok": False,
+                    "error": "missing or bad session token — open the URL that `swarm gui` printed",
+                })
+                return True
+            return False
+
+        def _reject_cross_origin(self) -> bool:
+            """True if a write carries no Origin, or a foreign Origin.
+
+            A browser sends Origin on every POST, including a same-origin
+            POST. A client that is not a browser sends no Origin. So an
+            absent Origin is refused too, not only a foreign one.
+            """
+            origin = self.headers.get("Origin")
+            if origin is None:
+                self._send_json(403, {"ok": False,
+                                      "error": "write without an Origin header refused"})
+                return True
+            if origin not in origins:
+                self._send_json(403, {"ok": False, "error": "cross-origin request refused"})
                 return True
             return False
 
@@ -1700,6 +1769,13 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
 
         # -- GET --------------------------------------------------------
         def do_GET(self):
+            if self._reject_bad_host():
+                return
+            # Every /api/ route needs the token, a read as much as a write.
+            # Without this, any local client reads the whole colony queue.
+            if self.path.startswith("/api/") and self._reject_bad_token():
+                return
+
             if self.path == "/api/state.json":
                 # Serialize BEFORE writing any header. send_error() emits a
                 # complete HTTP response of its own, so calling it after
@@ -1713,8 +1789,11 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
                 self._send(200, payload, "application/json")
 
             elif self.path in ("/", "/index.html"):
+                # The page carries no token. GET / cannot be authenticated,
+                # because a browser navigation carries no header. The page
+                # reads the token from the URL fragment instead.
                 html = template_path.read_text(encoding="utf-8")
-                html = html.replace("__SWARM_WRITE_TOKEN__", "" if read_only else token)
+                html = html.replace("__SWARM_READ_ONLY__", "true" if read_only else "false")
                 html = html.replace("__SWARM_AGENT_ID__", agent_id)
                 self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
 
@@ -1732,11 +1811,15 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
 
         # -- POST -------------------------------------------------------
         def do_POST(self):
+            if self._reject_bad_host():
+                return
             if not self.path.startswith("/api/item/"):
                 self._send_json(404, {"ok": False, "error": "no such endpoint"})
                 return
             if read_only:
                 self._send_json(403, {"ok": False, "error": "server started with --read-only"})
+                return
+            if self._reject_bad_token():
                 return
             if self._reject_cross_origin():
                 return
@@ -1821,11 +1904,17 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
             pass
 
     mode = "read-only" if read_only else f"read-write as {agent_id}"
+    url = f"http://127.0.0.1:{port}/#t={token}"
     click.echo(f"\nStarting dot_swarm GUI on http://127.0.0.1:{port}  ({mode})")
+    click.echo("Open this URL. The text after the # is the session token:")
+    click.echo(f"\n  {url}\n")
+    click.echo("The browser keeps the token in that one tab. The browser never sends")
+    click.echo("the fragment to the server. Another client must send the token in the")
+    click.echo("X-Swarm-Token header to read or to write.")
     click.echo("Press Ctrl+C to stop.\n")
 
     if open_browser:
-        Thread(target=lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+        Thread(target=lambda: webbrowser.open(url)).start()
 
     # Bind to loopback only. The dashboard can mutate the queue; "" would
     # publish that to every interface on the machine's network.

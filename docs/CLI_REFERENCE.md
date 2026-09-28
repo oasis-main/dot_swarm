@@ -116,6 +116,26 @@ swarm gui --agent alice            # attribute writes to a specific agent
 swarm --path ~/org gui             # serve a colony you are not standing in
 ```
 
+**Opening the page.** `swarm gui` prints one URL that carries a per-run session
+token in the URL fragment:
+
+```
+  http://127.0.0.1:8000/#t=OB8YbJAM4GiEmu34ghR_nArFq3c3_uRpDkFbdfgTci4
+```
+
+Open that URL. A browser never sends a fragment to a server, so `GET /` gives
+the token to nobody. The page reads the token from the fragment, stores the
+token in `sessionStorage` for that one tab, and then clears the address bar.
+Reload the tab freely. A new tab needs the printed URL again.
+
+Every `/api/` route needs that token in the `X-Swarm-Token` header, a read as
+much as a write. Drive the server from a script by sending the same header.
+
+A supervisor process that starts `swarm gui` and links to it (for example a
+fleet observatory) can choose the token with the `SWARM_GUI_TOKEN` environment
+variable: at least 32 characters from `A-Z a-z 0-9 - _`. Any other value stops
+the command with exit code 2. Without the variable, each run makes a random token.
+
 The page is **self-contained** — no CDN, no webfont, no build step. It renders with
 no network access at all, which is the point: `swarm gui` is a local operator tool
 that has to work on a plane, behind a proxy, and inside an egress-blocked container.
@@ -131,12 +151,19 @@ human working in the browser and an agent working over MCP are editing one queue
 | Control | Behaviour |
 |---|---|
 | Bind address | `127.0.0.1` only — never published to other interfaces |
-| Write token | Random per run, embedded in the page at serve time, required in the `X-Swarm-Token` header. A page from another site cannot read it, and setting a custom header forces a CORS preflight this server does not answer. |
-| `Origin` check | A request carrying a foreign `Origin` is refused with 403 |
+| Session token | Random per run. Required in the `X-Swarm-Token` header on **every** `/api/` route, a read as much as a write. Missing or wrong answers 401. The token is delivered in the URL fragment, never in the page body, so `GET /` hands it to no one. |
+| `Host` check | The `Host` header must be `127.0.0.1:PORT` or `localhost:PORT`. Anything else answers 421. This refuses DNS rebinding, where a hostile name resolves to the loopback address. |
+| `Origin` check | A write must carry an `Origin` of this same server. An absent `Origin` is refused with 403, as is a foreign one. A browser always sends `Origin` on a POST; a client that is not a browser sends none. |
 | Division allow-list | The `division_path` in a request must already be a discovered division. A path outside the colony is refused. |
 | Body limit | 64 KB |
 | Static files | Only `/`, `/api/state.json` and `/logo.png` are served. Every other path is a 404 — the handler never falls through to serving the working directory. |
-| `--read-only` | No token is embedded, and every write route answers 403 |
+| `--read-only` | Every write route answers 403. A read still needs the session token. |
+
+**Why the token gates reads as well.** The loopback address is not a trust
+boundary on the machine. Any local process can reach the port, and so can a
+Docker container: Docker Desktop forwards `host.docker.internal` to the host
+loopback address. Without a token on `GET /api/state.json`, any of them reads
+every division's queue and state.
 
 Requests are handled one at a time, so the dashboard never mutates two items
 concurrently. `claim` additionally takes the same per-item lock the CLI takes.

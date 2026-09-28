@@ -6,6 +6,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security — `swarm gui` handed the write token to any local client
+
+Measured on 2026-09-22 from a Docker container on the same Mac. Docker
+Desktop forwards `host.docker.internal` to the host loopback address, so a
+container reached the dashboard on `127.0.0.1:18781`. The loopback address
+is not a trust boundary on the machine. Three faults followed from treating
+it as one:
+
+- `GET /` substituted the real write token into `templates/gui.html` and
+  served that page to any caller. Any local process read the token.
+- `_reject_cross_origin()` accepted a request that carried **no** `Origin`
+  header. A client that is not a browser sends none, so a leaked token plus
+  no `Origin` was an accepted write — `add`, `claim`, `done`, `block`,
+  `comment` — attributed to the dashboard's agent id.
+- `GET /api/state.json` needed no token at all. Any local client read every
+  division's queue and state (684 KB for one real colony root).
+- No `Host` header check, so a hostile name resolving to `127.0.0.1` (DNS
+  rebinding) reached the server through a browser.
+
+Fixed:
+
+- **The token moves out of band.** `swarm gui` prints
+  `http://127.0.0.1:PORT/#t=TOKEN` and `--open` opens that URL. A browser
+  never sends a URL fragment to a server. The page reads the token from the
+  fragment, stores it in `sessionStorage` for that one tab, and clears the
+  address bar with `history.replaceState`. `GET /` no longer contains the
+  token.
+- **The token gates reads.** Every `/api/` route requires `X-Swarm-Token`,
+  not only the write routes. Missing or wrong answers 401. The comparison
+  uses `secrets.compare_digest`.
+- **A write needs an `Origin`.** An absent `Origin` is now refused with 403,
+  as a foreign one already was.
+- **`Host` is checked.** A request whose `Host` is not `127.0.0.1:PORT` or
+  `localhost:PORT` answers 421.
+- `--read-only` still refuses every write with 403, and now also requires
+  the session token on a read.
+- New `SWARM_GUI_TOKEN` environment variable. A supervisor process that
+  starts the dashboard and links to it can choose the token (at least 32
+  characters from `A-Z a-z 0-9 - _`; anything else exits with code 2).
+
+`tests/test_gui_server.py` and `tests/test_gui_template.py` grew from 19 to
+34 tests, covering: no token in `GET /`, `state.json` without a token,
+`state.json` with a wrong token, a write with no `Origin`, a wrong `Host` on
+a read and on a write, and both accepted `Host` values.
+
 ### Fixed — `swarm gui` never worked (three defects, one endpoint)
 
 The dashboard shipped in v0.x and had zero test coverage, so nothing caught
@@ -50,12 +95,13 @@ that its only data endpoint returned a 500 to every user on every platform.
   `.swarm/claims/` record as the equivalent `swarm` command. This is the
   first surface where a human can drive the protocol without the terminal.
 - **Bounded.** The server now binds `127.0.0.1` instead of every interface;
-  writes require a per-run token embedded in the page (`X-Swarm-Token`) and
-  are refused from a foreign `Origin`; a `division_path` outside the
+  every `/api/` route requires a per-run token (`X-Swarm-Token`); a write is
+  refused without this server's own `Origin`; a `division_path` outside the
   discovered colony is refused; bodies are capped at 64 KB. The handler
   moved from `SimpleHTTPRequestHandler` to `BaseHTTPRequestHandler`, which
   removes the fall-through that served the process's working directory for
-  any unmatched path. `--read-only` serves the page with no token at all.
+  any unmatched path. `--read-only` refuses every write. See the Security
+  entry above for how the token reaches the page.
 - New `--read-only` and `--agent` options on `swarm gui`.
 
 ### Added — tests for the GUI surface (308 → 334)
