@@ -124,6 +124,25 @@ swarm gui <span class="nt">--agent</span> alice            <span class="c"># att
 swarm <span class="nt">--path</span> ~/org gui             <span class="c"># serve a colony you are not standing in</span>
 </code></pre></div></div>
 
+<p><strong>Opening the page.</strong> <code class="language-plaintext highlighter-rouge">swarm gui</code> prints one URL that carries a per-run session
+token in the URL fragment:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  http://127.0.0.1:8000/#t=OB8YbJAM4GiEmu34ghR_nArFq3c3_uRpDkFbdfgTci4
+</code></pre></div></div>
+
+<p>Open that URL. A browser never sends a fragment to a server, so <code class="language-plaintext highlighter-rouge">GET /</code> gives
+the token to nobody. The page reads the token from the fragment, stores the
+token in <code class="language-plaintext highlighter-rouge">sessionStorage</code> for that one tab, and then clears the address bar.
+Reload the tab freely. A new tab needs the printed URL again.</p>
+
+<p>Every <code class="language-plaintext highlighter-rouge">/api/</code> route needs that token in the <code class="language-plaintext highlighter-rouge">X-Swarm-Token</code> header, a read as
+much as a write. Drive the server from a script by sending the same header.</p>
+
+<p>A supervisor process that starts <code class="language-plaintext highlighter-rouge">swarm gui</code> and links to it (for example a
+fleet observatory) can choose the token with the <code class="language-plaintext highlighter-rouge">SWARM_GUI_TOKEN</code> environment
+variable: at least 32 characters from <code class="language-plaintext highlighter-rouge">A-Z a-z 0-9 - _</code>. Any other value stops
+the command with exit code 2. Without the variable, each run makes a random token.</p>
+
 <p>The page is <strong>self-contained</strong> — no CDN, no webfont, no build step. It renders with
 no network access at all, which is the point: <code class="language-plaintext highlighter-rouge">swarm gui</code> is a local operator tool
 that has to work on a plane, behind a proxy, and inside an egress-blocked container.</p>
@@ -149,12 +168,16 @@ human working in the browser and an agent working over MCP are editing one queue
       <td><code class="language-plaintext highlighter-rouge">127.0.0.1</code> only — never published to other interfaces</td>
     </tr>
     <tr>
-      <td>Write token</td>
-      <td>Random per run, embedded in the page at serve time, required in the <code class="language-plaintext highlighter-rouge">X-Swarm-Token</code> header. A page from another site cannot read it, and setting a custom header forces a CORS preflight this server does not answer.</td>
+      <td>Session token</td>
+      <td>Random per run. Required in the <code class="language-plaintext highlighter-rouge">X-Swarm-Token</code> header on <strong>every</strong> <code class="language-plaintext highlighter-rouge">/api/</code> route, a read as much as a write. Missing or wrong answers 401. The token is delivered in the URL fragment, never in the page body, so <code class="language-plaintext highlighter-rouge">GET /</code> hands it to no one.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Host</code> check</td>
+      <td>The <code class="language-plaintext highlighter-rouge">Host</code> header must be <code class="language-plaintext highlighter-rouge">127.0.0.1:PORT</code> or <code class="language-plaintext highlighter-rouge">localhost:PORT</code>. Anything else answers 421. This refuses DNS rebinding, where a hostile name resolves to the loopback address.</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">Origin</code> check</td>
-      <td>A request carrying a foreign <code class="language-plaintext highlighter-rouge">Origin</code> is refused with 403</td>
+      <td>A write must carry an <code class="language-plaintext highlighter-rouge">Origin</code> of this same server. An absent <code class="language-plaintext highlighter-rouge">Origin</code> is refused with 403, as is a foreign one. A browser always sends <code class="language-plaintext highlighter-rouge">Origin</code> on a POST; a client that is not a browser sends none.</td>
     </tr>
     <tr>
       <td>Division allow-list</td>
@@ -170,10 +193,16 @@ human working in the browser and an agent working over MCP are editing one queue
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">--read-only</code></td>
-      <td>No token is embedded, and every write route answers 403</td>
+      <td>Every write route answers 403. A read still needs the session token.</td>
     </tr>
   </tbody>
 </table>
+
+<p><strong>Why the token gates reads as well.</strong> The loopback address is not a trust
+boundary on the machine. Any local process can reach the port, and so can a
+Docker container: Docker Desktop forwards <code class="language-plaintext highlighter-rouge">host.docker.internal</code> to the host
+loopback address. Without a token on <code class="language-plaintext highlighter-rouge">GET /api/state.json</code>, any of them reads
+every division’s queue and state.</p>
 
 <p>Requests are handled one at a time, so the dashboard never mutates two items
 concurrently. <code class="language-plaintext highlighter-rouge">claim</code> additionally takes the same per-item lock the CLI takes.</p>
