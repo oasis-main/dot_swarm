@@ -8,6 +8,11 @@ venv/
 *.swp
 .DS_Store
 
+# Packaged editor extensions. These are downloaded or locally built binaries,
+# not source — a .vsix was committed by accident once already and removed in
+# 7b00e7c. Nothing in this repo builds or consumes one; keep them out.
+*.vsix
+
 # Private outreach drafts and scratch notes
 .drafts/
 

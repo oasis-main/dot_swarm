@@ -1,8 +1,13 @@
 """Integration tests for the `swarm gui` HTTP surface.
 
 The dashboard can mutate the queue, so these cover both that the write
-routes work and that they refuse what they should: a missing token, a
-foreign Origin, a division outside the colony, and --read-only mode.
+routes work and that they refuse what they should: a missing token, an
+absent or foreign Origin, an unexpected Host, a division outside the
+colony, and --read-only mode.
+
+The token never appears in the page. `swarm gui` prints a URL whose
+fragment holds the token, so these tests read the token from the server's
+terminal output, the same way an operator does.
 
 Each test drives a real `swarm gui` process over real HTTP. That is the
 only way to cover the handler, which is defined inside the click command.
@@ -14,6 +19,7 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -76,8 +82,20 @@ class Server:
         h.update(extra or {})
         return h
 
+    def read(self, extra: dict | None = None) -> dict:
+        """Headers for a read: the session token, no Origin.
+
+        A browser sends no Origin on a same-origin GET, so a read must work
+        without one.
+        """
+        h = {"X-Swarm-Token": self.token}
+        h.update(extra or {})
+        return h
+
     def state(self) -> dict:
-        return json.loads(_get(self.base + "/api/state.json")[1])
+        status, body = _get(self.base + "/api/state.json", self.read())
+        assert status == 200, f"state.json returned {status}: {body}"
+        return json.loads(body)
 
     def division(self, name: str) -> dict:
         return next(d for d in self.state()["divisions"] if d["name"] == name)
@@ -93,29 +111,47 @@ def colony(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _start(colony: Path, *extra: str) -> Server:
+def _start(colony: Path, *extra: str, env: dict | None = None) -> Server:
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
     proc = subprocess.Popen(
         [sys.executable, "-c", "from dot_swarm.cli import cli; cli(obj={})",
          "--path", str(colony), "gui", "--port", str(port), *extra],
         cwd=str(colony), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, env=_env(),
+        text=True, env={**_env(), **(env or {})},
     )
+    # The token is printed, not served. Drain stdout on a thread so the
+    # pipe never fills and the server never blocks on its own output.
+    out_lines: list[str] = []
+
+    def _drain() -> None:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            out_lines.append(line)
+
+    threading.Thread(target=_drain, daemon=True).start()
+
+    token = ""
     deadline = time.time() + 25
     while time.time() < deadline:
         if proc.poll() is not None:
-            pytest.fail("gui server exited early:\n" + (proc.stdout.read() if proc.stdout else ""))
-        try:
-            status, html = _get(base + "/")
-            if status == 200:
-                m = re.search(r'const WRITE_TOKEN = "([^"]*)"', html)
-                assert m, "WRITE_TOKEN placeholder was not substituted"
-                return Server(colony, port, proc, m.group(1), base)
-        except Exception:
-            time.sleep(0.1)
+            time.sleep(0.2)
+            proc.kill()
+            pytest.fail("gui server exited early:\n" + "".join(out_lines))
+        if not token:
+            for line in list(out_lines):
+                m = re.search(r"#t=(\S+)", line)
+                if m:
+                    token = m.group(1)
+                    break
+        if token:
+            try:
+                if _get(base + "/")[0] == 200:
+                    return Server(colony, port, proc, token, base)
+            except Exception:
+                pass
+        time.sleep(0.1)
     proc.kill()
-    pytest.fail("gui server did not come up in time")
+    pytest.fail("gui server did not come up in time:\n" + "".join(out_lines))
 
 
 @pytest.fixture()
@@ -138,12 +174,35 @@ def readonly_server(colony: Path):
 # Reads
 # ---------------------------------------------------------------------------
 
-def test_index_serves_the_page_with_a_token(server: Server) -> None:
+def test_index_serves_the_page_without_the_token(server: Server) -> None:
+    """GET / is unauthenticated, so the page must carry no token.
+
+    This is the fault that let any local client read the token and then
+    write to the queue as the dashboard's agent.
+    """
     status, html = _get(server.base + "/")
     assert status == 200
     assert "dot_swarm Dashboard" in html
-    assert "__SWARM_WRITE_TOKEN__" not in html
     assert len(server.token) > 20
+    assert server.token not in html, "GET / handed out the session token"
+    assert "__SWARM_WRITE_TOKEN__" not in html
+    assert "__SWARM_READ_ONLY__" not in html, "read-only placeholder not substituted"
+
+
+def test_read_only_page_also_carries_no_token(readonly_server: Server) -> None:
+    status, html = _get(readonly_server.base + "/")
+    assert status == 200
+    assert readonly_server.token not in html
+    assert "__SWARM_READ_ONLY__" not in html
+
+
+def test_the_page_reads_the_token_from_the_url_fragment(server: Server) -> None:
+    """The CLI prints /#t=TOKEN and the page picks the token up there."""
+    html = _get(server.base + "/")[1]
+    assert "location.hash" in html
+    assert "history.replaceState" in html
+    assert "sessionStorage" in html
+    assert "X-Swarm-Token" in html
 
 
 def test_state_endpoint_returns_json(server: Server) -> None:
@@ -156,8 +215,45 @@ def test_state_endpoint_returns_json(server: Server) -> None:
 def test_unknown_paths_do_not_serve_local_files(server: Server) -> None:
     """The handler must not fall through to serving the working directory."""
     for path in ("/.swarm/queue.md", "/../../etc/passwd", "/oasis-cloud/.swarm/state.md"):
-        status, _ = _get(server.base + path)
+        status, _ = _get(server.base + path, server.read())
         assert status == 404, f"{path} was served (status {status})"
+
+
+def test_state_endpoint_without_a_token_is_refused(server: Server) -> None:
+    """A read leaks the whole colony queue, so a read needs the token too."""
+    status, body = _get(server.base + "/api/state.json")
+    assert status == 401, body
+    assert "divisions" not in body
+
+    status, body = _get(server.base + "/api/state.json",
+                        {"X-Swarm-Token": "not-the-token"})
+    assert status == 401, body
+    assert "divisions" not in body
+
+
+def test_every_api_route_needs_the_token(server: Server) -> None:
+    for path in ("/api/state.json", "/api/anything", "/api/"):
+        assert _get(server.base + path)[0] == 401, path
+
+
+def test_a_wrong_host_header_is_refused(server: Server) -> None:
+    """A name that resolves to 127.0.0.1 (DNS rebinding) must not work."""
+    for path in ("/", "/api/state.json"):
+        status, body = _get(server.base + path,
+                            server.read({"Host": "swarm.evil.example"}))
+        assert status == 421, f"{path} answered {status}: {body}"
+
+    status, out = _post(server.base + "/api/item/add",
+                        {"division_path": str(server.root / "oasis-cloud"),
+                         "description": "rebound"},
+                        server.auth({"Host": "swarm.evil.example"}))
+    assert status == 421 and not out["ok"]
+
+
+def test_the_right_host_headers_are_accepted(server: Server) -> None:
+    for host in (f"127.0.0.1:{server.port}", f"localhost:{server.port}"):
+        status, _ = _get(server.base + "/", {"Host": host})
+        assert status == 200, host
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +349,25 @@ def test_write_without_the_token_is_refused(server: Server) -> None:
     div = server.division("oasis-cloud")
     before = len(div["queue"]["pending"])
     status, out = _post(server.base + "/api/item/add",
-                        {"division_path": div["path"], "description": "should not land"})
+                        {"division_path": div["path"], "description": "should not land"},
+                        {"Origin": server.base})
+    assert status == 401 and not out["ok"]
+    assert len(server.division("oasis-cloud")["queue"]["pending"]) == before
+
+
+def test_write_without_an_origin_is_refused(server: Server) -> None:
+    """A client that is not a browser sends no Origin. Refuse that write.
+
+    A token alone is not enough: the token can leak, and a non-browser
+    client is exactly what the old handler let through.
+    """
+    div = server.division("oasis-cloud")
+    before = len(div["queue"]["pending"])
+    status, out = _post(server.base + "/api/item/add",
+                        {"division_path": div["path"], "description": "no origin"},
+                        {"X-Swarm-Token": server.token})
     assert status == 403 and not out["ok"]
+    assert "Origin" in out["error"]
     assert len(server.division("oasis-cloud")["queue"]["pending"]) == before
 
 
@@ -286,10 +399,44 @@ def test_oversized_body_is_refused(server: Server) -> None:
 
 
 def test_read_only_mode_serves_but_refuses_writes(readonly_server: Server) -> None:
-    assert readonly_server.token == "", "read-only page must carry no write token"
+    # --read-only still issues a session token, because a read is also
+    # gated. Only the write routes are closed.
+    assert len(readonly_server.token) > 20
+    assert _get(readonly_server.base + "/api/state.json")[0] == 401
     div = readonly_server.division("oasis-cloud")
     status, out = _post(readonly_server.base + "/api/item/add",
                         {"division_path": div["path"], "description": "nope"},
                         {"X-Swarm-Token": "anything", "Origin": readonly_server.base})
     assert status == 403 and not out["ok"]
     assert "read-only" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# A supervisor chooses the token (SWARM_GUI_TOKEN)
+# ---------------------------------------------------------------------------
+
+def test_supervisor_can_choose_the_token(colony: Path) -> None:
+    """A fleet observatory starts `swarm gui` and links to it, so the
+    observatory must know the token without parsing terminal text."""
+    chosen = "S" * 40
+    s = _start(colony, env={"SWARM_GUI_TOKEN": chosen})
+    try:
+        assert s.token == chosen
+        assert _get(s.base + "/api/state.json", {"X-Swarm-Token": chosen})[0] == 200
+        status, html = _get(s.base + "/")
+        assert status == 200 and chosen not in html
+    finally:
+        s.proc.kill()
+        s.proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("bad", ["short-token", "x" * 31, "a" * 40 + " b", "a" * 40 + "#"])
+def test_a_weak_or_malformed_supervisor_token_is_refused(colony: Path, bad: str) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-c", "from dot_swarm.cli import cli; cli(obj={})",
+         "--path", str(colony), "gui", "--port", str(_free_port())],
+        cwd=str(colony), capture_output=True, text=True, timeout=30,
+        env={**_env(), "SWARM_GUI_TOKEN": bad},
+    )
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "SWARM_GUI_TOKEN" in proc.stderr
