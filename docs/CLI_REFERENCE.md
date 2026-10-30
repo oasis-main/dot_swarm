@@ -289,7 +289,7 @@ swarm audit --since 24       # Stale threshold in hours (default: 48)
 - `HIGH`: Non-disclosure directives, hidden instructions, control characters, priority manipulation
 - `MEDIUM`: Hidden HTML/markdown comments, HTML injection, code injection
 
-**`--drift`** runs the same AI analysis as the GitHub Actions drift-check workflow, locally. Compares the last 5 commits against `.swarm/` state to detect misalignment.
+**`--drift`** runs an AI analysis locally. Compares the last 5 commits against `.swarm/` state to detect misalignment.
 
 **`--trail`** re-verifies every HMAC-SHA256 signature in `trail.log`. Tampered entries are flagged with the agent fingerprint responsible.
 
@@ -870,22 +870,6 @@ swarm configure
 
 Config stored at `~/.config/swarm/config.toml`. Credentials are never stored here —
 use `aws configure` or env vars for Bedrock; the respective CLI handles auth for others.
-
----
-
-## Setup & CI
-
-### `swarm setup-drift-check`
-
-Install the `swarm-drift-check.yml` GitHub Actions workflow into the current repo.
-Uses the `gh` CLI to set secrets if needed.
-
-```bash
-swarm setup-drift-check           # install workflow file only
-swarm setup-drift-check --commit  # also commit + push
-```
-
-See [Drift Check Setup](DRIFT_CHECK_SETUP.md) for AWS Bedrock prerequisites.
 
 ---
 

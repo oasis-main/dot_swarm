@@ -37,7 +37,6 @@ nav:
   - Home: index.md
   - Getting Started:
       - Platform Setup: PLATFORM_SETUP.md
-      - Drift Check: DRIFT_CHECK_SETUP.md
   - Reference:
       - CLI Reference: CLI_REFERENCE.md
       - Agent Roles: ROLES.md

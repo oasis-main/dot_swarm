@@ -752,142 +752,17 @@ No changes needed to existing git setup.
 
 ### Cross-repo auditing
 
-The CI/CD drift check (see section 10) uses GitHub API to read division `.swarm/state.md`
-files from their respective repos. No git submodules needed.
+`swarm audit` reads each division's `.swarm/` files from its own repo. No git submodules
+needed. (The CI/CD drift check of section 10 was removed 2026-10-30.)
 
 ---
 
 ## 10. CI/CD Documentation Drift Check
 
-### Purpose
-
-When code changes are pushed to a division repo, a GitHub Action checks whether
-the division's `.swarm/state.md` and `.swarm/queue.md` accurately reflect those changes.
-It calls Bedrock (Claude) to generate a natural-language assessment and posts it as a
-PR comment.
-
-### Workflow File Location
-
-`oasis-cloud-admin/.github/workflows/swarm-drift-check.yml`
-(The admin repo is the control plane — CI/CD lives here.)
-
-Or per-division at `<repo>/.github/workflows/swarm-drift-check.yml`.
-
-### Workflow Spec
-
-```yaml
-name: dot_swarm Drift Check
-
-on:
-  pull_request:
-    types: [opened, synchronize]
-  push:
-    branches: [dev, prod]
-
-jobs:
-  drift-check:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # need full history for diff
-
-      - name: Get changed files
-        id: changes
-        run: |
-          git diff --name-only origin/${{ github.base_ref }}...HEAD > /tmp/changed_files.txt
-          cat /tmp/changed_files.txt
-
-      - name: Read .swarm state
-        run: |
-          cat .swarm/state.md > /tmp/state.md 2>/dev/null || echo "(no state.md)" > /tmp/state.md
-          cat .swarm/queue.md > /tmp/queue.md 2>/dev/null || echo "(no queue.md)" > /tmp/queue.md
-
-      - name: Get diff summary
-        run: |
-          git diff origin/${{ github.base_ref }}...HEAD -- '*.py' '*.ts' '*.rs' \
-            | head -500 > /tmp/diff.txt
-
-      - name: Check drift with Bedrock
-        id: drift
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-        run: |
-          python3 - << 'PYEOF'
-          import boto3, json, sys
-
-          bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
-
-          diff = open('/tmp/diff.txt').read()[:3000]
-          state = open('/tmp/state.md').read()
-          queue = open('/tmp/queue.md').read()[:2000]
-          changed = open('/tmp/changed_files.txt').read()
-
-          prompt = f"""You are reviewing a pull request for documentation drift in a dot_swarm-coordinated repository.
-
-          dot_swarm uses .swarm/state.md and .swarm/queue.md to track agent coordination state.
-
-          Changed files in this PR:
-          {changed}
-
-          Current .swarm/state.md:
-          {state}
-
-          Current .swarm/queue.md (first 2000 chars):
-          {queue}
-
-          Code diff (first 3000 chars):
-          {diff}
-
-          Check:
-          1. Does state.md's "Current focus" reflect what these code changes implement?
-          2. Are the relevant work items in queue.md marked as [DONE] or [CLAIMED]?
-          3. Are there new items that should be added to queue.md based on TODOs or incomplete work?
-          4. Does memory.md need a new entry for any non-obvious decisions in this diff?
-
-          Respond in markdown. Be specific about line references when flagging issues.
-          If everything looks good, say so briefly. Maximum 300 words."""
-
-          response = bedrock.invoke_model(
-              modelId='anthropic.claude-sonnet-4-6',
-              body=json.dumps({
-                  'anthropic_version': 'bedrock-2023-05-31',
-                  'max_tokens': 500,
-                  'messages': [{'role': 'user', 'content': prompt}]
-              })
-          )
-          result = json.loads(response['body'].read())
-          assessment = result['content'][0]['text']
-
-          with open('/tmp/drift_assessment.md', 'w') as f:
-              f.write(f"## dot_swarm Drift Check\n\n{assessment}")
-          PYEOF
-
-      - name: Post PR comment
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('/tmp/drift_assessment.md', 'utf8');
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body
-            });
-```
-
-### Adding to Each Division
-
-Once the workflow is tested in one repo, add to each division's `.github/workflows/`.
-The `swarm init` command will eventually create this file automatically.
+Removed 2026-10-30. The `swarm-drift-check.yml` GitHub Actions workflow and the
+`swarm setup-drift-check` command are deprecated and deleted; `swarm init` no longer
+installs the workflow. Use `swarm audit --drift` to run the AI code-vs-docs check
+locally.
 
 ---
 
@@ -961,8 +836,8 @@ The `swarm init` command will eventually create this file automatically.
 **Goal**: Drift check runs on every PR. Org has git history.
 **Depends on**: Phase 1
 
-- [ ] Add `swarm-drift-check.yml` to oasis-cloud-admin (test on one repo first)
-- [ ] Roll out to all active division repos
+- [~] ~~Add `swarm-drift-check.yml` to oasis-cloud-admin~~ — dropped 2026-10-30 (workflow removed)
+- [~] ~~Roll out to all active division repos~~ — dropped 2026-10-30
 - [ ] Initialize `oasis-x` as thin git repo (track .swarm/ + swarm-city/ only)
 - [ ] First commit of all Phase 0–1 .swarm/ files
 - [ ] Configure GitHub repo for oasis-x (org visibility)
