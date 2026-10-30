@@ -321,7 +321,7 @@ swarm audit <span class="nt">--since</span> 24       <span class="c"># Stale thr
   <li><code class="language-plaintext highlighter-rouge">MEDIUM</code>: Hidden HTML/markdown comments, HTML injection, code injection</li>
 </ul>
 
-<p><strong><code class="language-plaintext highlighter-rouge">--drift</code></strong> runs the same AI analysis as the GitHub Actions drift-check workflow, locally. Compares the last 5 commits against <code class="language-plaintext highlighter-rouge">.swarm/</code> state to detect misalignment.</p>
+<p><strong><code class="language-plaintext highlighter-rouge">--drift</code></strong> runs an AI analysis locally. Compares the last 5 commits against <code class="language-plaintext highlighter-rouge">.swarm/</code> state to detect misalignment.</p>
 
 <p><strong><code class="language-plaintext highlighter-rouge">--trail</code></strong> re-verifies every HMAC-SHA256 signature in <code class="language-plaintext highlighter-rouge">trail.log</code>. Tampered entries are flagged with the agent fingerprint responsible.</p>
 
@@ -1094,21 +1094,6 @@ trail visibility.</p>
 
 <p>Config stored at <code class="language-plaintext highlighter-rouge">~/.config/swarm/config.toml</code>. Credentials are never stored here —
 use <code class="language-plaintext highlighter-rouge">aws configure</code> or env vars for Bedrock; the respective CLI handles auth for others.</p>
-
-<hr />
-
-<h2 id="setup--ci">Setup &amp; CI</h2>
-
-<h3 id="swarm-setup-drift-check"><code class="language-plaintext highlighter-rouge">swarm setup-drift-check</code></h3>
-
-<p>Install the <code class="language-plaintext highlighter-rouge">swarm-drift-check.yml</code> GitHub Actions workflow into the current repo.
-Uses the <code class="language-plaintext highlighter-rouge">gh</code> CLI to set secrets if needed.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm setup-drift-check           <span class="c"># install workflow file only</span>
-swarm setup-drift-check <span class="nt">--commit</span>  <span class="c"># also commit + push</span>
-</code></pre></div></div>
-
-<p>See <a href="DRIFT_CHECK_SETUP.md">Drift Check Setup</a> for AWS Bedrock prerequisites.</p>
 
 <hr />
 

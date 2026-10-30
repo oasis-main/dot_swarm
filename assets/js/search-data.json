@@ -78,21 +78,21 @@
   },"11": {
     "doc": "Architecture",
     "title": "9. Git Topology",
-    "content": "Current State . oasis-x/ is not a git repository. Division repos are independent git repos. Phase 0 (current): No git at org level .swarm/ files exist on the filesystem but are not version-controlled at org level. This is acceptable for Phase 0 — focus is on getting the protocol right. Phase 1 Goal: Thin org-level git repo . Initialize oasis-x as a git repo that tracks ONLY .swarm/ and swarm-city/: . cd oasis-x/ git init cat &gt; .gitignore &lt;&lt; 'EOF' # Track only .swarm/ coordination state and swarm-city/ project * !.swarm/ !.swarm/** !swarm-city/ !swarm-city/** !.gitignore !AGENTS.md EOF git add .swarm/ swarm-city/ .gitignore AGENTS.md git commit -m \"chore: initialize dot_swarm coordination layer\" . This gives: . | Full git history on all .swarm/ state changes (who claimed what, when) | Org-level PRs for org-level initiatives | No submodule overhead — division repos stay independent | The org git repo is lightweight (only markdown files) | . Division repos . Division repos track their own .swarm/ as part of their normal git history. No changes needed to existing git setup. Cross-repo auditing . The CI/CD drift check (see section 10) uses GitHub API to read division .swarm/state.md files from their respective repos. No git submodules needed. ",
+    "content": "Current State . oasis-x/ is not a git repository. Division repos are independent git repos. Phase 0 (current): No git at org level .swarm/ files exist on the filesystem but are not version-controlled at org level. This is acceptable for Phase 0 — focus is on getting the protocol right. Phase 1 Goal: Thin org-level git repo . Initialize oasis-x as a git repo that tracks ONLY .swarm/ and swarm-city/: . cd oasis-x/ git init cat &gt; .gitignore &lt;&lt; 'EOF' # Track only .swarm/ coordination state and swarm-city/ project * !.swarm/ !.swarm/** !swarm-city/ !swarm-city/** !.gitignore !AGENTS.md EOF git add .swarm/ swarm-city/ .gitignore AGENTS.md git commit -m \"chore: initialize dot_swarm coordination layer\" . This gives: . | Full git history on all .swarm/ state changes (who claimed what, when) | Org-level PRs for org-level initiatives | No submodule overhead — division repos stay independent | The org git repo is lightweight (only markdown files) | . Division repos . Division repos track their own .swarm/ as part of their normal git history. No changes needed to existing git setup. Cross-repo auditing . swarm audit reads each division’s .swarm/ files from its own repo. No git submodules needed. (The CI/CD drift check of section 10 was removed 2026-10-30.) . ",
     "url": "/dot_swarm/ARCHITECTURE.html#9-git-topology",
     
     "relUrl": "/ARCHITECTURE.html#9-git-topology"
   },"12": {
     "doc": "Architecture",
     "title": "10. CI/CD Documentation Drift Check",
-    "content": "Purpose . When code changes are pushed to a division repo, a GitHub Action checks whether the division’s .swarm/state.md and .swarm/queue.md accurately reflect those changes. It calls Bedrock (Claude) to generate a natural-language assessment and posts it as a PR comment. Workflow File Location . oasis-cloud-admin/.github/workflows/swarm-drift-check.yml (The admin repo is the control plane — CI/CD lives here.) . Or per-division at &lt;repo&gt;/.github/workflows/swarm-drift-check.yml. Workflow Spec . name: dot_swarm Drift Check on: pull_request: types: [opened, synchronize] push: branches: [dev, prod] jobs: drift-check: runs-on: ubuntu-latest permissions: pull-requests: write contents: read steps: - uses: actions/checkout@v4 with: fetch-depth: 0 # need full history for diff - name: Get changed files id: changes run: | git diff --name-only origin/$...HEAD &gt; /tmp/changed_files.txt cat /tmp/changed_files.txt - name: Read .swarm state run: | cat .swarm/state.md &gt; /tmp/state.md 2&gt;/dev/null || echo \"(no state.md)\" &gt; /tmp/state.md cat .swarm/queue.md &gt; /tmp/queue.md 2&gt;/dev/null || echo \"(no queue.md)\" &gt; /tmp/queue.md - name: Get diff summary run: | git diff origin/$...HEAD -- '*.py' '*.ts' '*.rs' \\ | head -500 &gt; /tmp/diff.txt - name: Check drift with Bedrock id: drift env: AWS_ACCESS_KEY_ID: $ AWS_SECRET_ACCESS_KEY: $ AWS_DEFAULT_REGION: us-east-1 run: | python3 - &lt;&lt; 'PYEOF' import boto3, json, sys bedrock = boto3.client('bedrock-runtime', region_name='us-east-1') diff = open('/tmp/diff.txt').read()[:3000] state = open('/tmp/state.md').read() queue = open('/tmp/queue.md').read()[:2000] changed = open('/tmp/changed_files.txt').read() prompt = f\"\"\"You are reviewing a pull request for documentation drift in a dot_swarm-coordinated repository. dot_swarm uses .swarm/state.md and .swarm/queue.md to track agent coordination state. Changed files in this PR: {changed} Current .swarm/state.md: {state} Current .swarm/queue.md (first 2000 chars): {queue} Code diff (first 3000 chars): {diff} Check: 1. Does state.md's \"Current focus\" reflect what these code changes implement? 2. Are the relevant work items in queue.md marked as [DONE] or [CLAIMED]? 3. Are there new items that should be added to queue.md based on TODOs or incomplete work? 4. Does memory.md need a new entry for any non-obvious decisions in this diff? Respond in markdown. Be specific about line references when flagging issues. If everything looks good, say so briefly. Maximum 300 words.\"\"\" response = bedrock.invoke_model( modelId='anthropic.claude-sonnet-4-6', body=json.dumps({ 'anthropic_version': 'bedrock-2023-05-31', 'max_tokens': 500, 'messages': [{'role': 'user', 'content': prompt}] }) ) result = json.loads(response['body'].read()) assessment = result['content'][0]['text'] with open('/tmp/drift_assessment.md', 'w') as f: f.write(f\"## dot_swarm Drift Check\\n\\n{assessment}\") PYEOF - name: Post PR comment if: github.event_name == 'pull_request' uses: actions/github-script@v7 with: script: | const fs = require('fs'); const body = fs.readFileSync('/tmp/drift_assessment.md', 'utf8'); await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.payload.pull_request.number, body }); . Adding to Each Division . Once the workflow is tested in one repo, add to each division’s .github/workflows/. The swarm init command will eventually create this file automatically. ",
+    "content": "Removed 2026-10-30. The swarm-drift-check.yml GitHub Actions workflow and the swarm setup-drift-check command are deprecated and deleted; swarm init no longer installs the workflow. Use swarm audit --drift to run the AI code-vs-docs check locally. ",
     "url": "/dot_swarm/ARCHITECTURE.html#10-cicd-documentation-drift-check",
     
     "relUrl": "/ARCHITECTURE.html#10-cicd-documentation-drift-check"
   },"13": {
     "doc": "Architecture",
     "title": "11. Implementation Phases",
-    "content": "Phase 0 — Scaffold (CURRENT) . Goal: Org-level .swarm/ structure exists and is usable by agents today. Status: In progress . | Design dot_swarm architecture | Create org-level .swarm/BOOTSTRAP.md | Create org-level .swarm/ROUTING.md | Create org-level .swarm/GLOSSARY.md | Create org-level .swarm/context.md | Create org-level .swarm/state.md | Create org-level .swarm/queue.md | Create org-level .swarm/memory.md | Create .swarm/workflows/agent-session.md | Create .swarm/workflows/cross-division.md | Create README.md (root level) | Unify src/swarm_city and src/swarm_city_mcp into single package | Create docs/PLATFORM_SETUP.md (shim templates) | Update oasis-x/AGENTS.md to point at .swarm/BOOTSTRAP.md | . Handoff: Phase 0 scaffolding is essentially complete. The core models and file operations are implemented, and the CLI/MCP server can be installed from the root directory. Phase 1 — Division Bootstrapping . Goal: All active divisions have .swarm/ stubs and platform shims. Depends on: Phase 0 complete . | swarm init logic for file creation and level detection | Roll out to divisions: oasis-cloud, oasis-cloud-admin, oasis-weather, oasis-firmware, oasis-home, oasis-ui, oasis-forms, oasis-hardware, oasis-welcome | Populate each division’s context.md from existing AGENTS.md content | Add platform shims to each division (CLAUDE.md, .windsurfrules, .cursorrules) | Migrate any relevant Beads issues to division queue.md files | . Phase 2 — CLI Tool (Enhanced) . Goal: swarm command works for all core operations. Status: Mostly complete . | swarm status (state summary) | swarm claim / swarm done / swarm partial / swarm block | swarm add (ID auto-assignment) | swarm audit (stale claim detection, drift detection) | swarm handoff (handoff doc generation) | swarm ai (Natural language to swarm ops) | swarm sync (org state snapshot refresh) | Unit tests for queue.md parsing | Unified pyproject.toml for easy distribution | . Phase 3 — MCP Server (Enhanced) . Goal: swarm_* tools available in all MCP-compatible platforms. Status: Mostly complete . | MCP server implementation using unified models/operations | Support for all core operations: claim, done, add, state, queue, context | File locking for atomic writes (verify implementation) | Platform setup docs (Claude Code, Windsurf, Cursor, Gemini, OpenCode) | Test with Claude Code MCP config | . Phase 4 — CI/CD + Git Topology . Goal: Drift check runs on every PR. Org has git history. Depends on: Phase 1 . | Add swarm-drift-check.yml to oasis-cloud-admin (test on one repo first) | Roll out to all active division repos | Initialize oasis-x as thin git repo (track .swarm/ + swarm-city/ only) | First commit of all Phase 0–1 .swarm/ files | Configure GitHub repo for oasis-x (org visibility) | . Phase 5 — Remove Beads . Goal: No .beads/ directories anywhere. Depends on: Phase 1 . | Export Beads JSONL backup: bd export --output .beads/backup/ | Archive JSONL files in swarm-city/archive/beads-migration/ | Delete .beads/ from oasis-home | Uninstall bd CLI globally | Remove .beads/ from any other repos if present | . ",
+    "content": "Phase 0 — Scaffold (CURRENT) . Goal: Org-level .swarm/ structure exists and is usable by agents today. Status: In progress . | Design dot_swarm architecture | Create org-level .swarm/BOOTSTRAP.md | Create org-level .swarm/ROUTING.md | Create org-level .swarm/GLOSSARY.md | Create org-level .swarm/context.md | Create org-level .swarm/state.md | Create org-level .swarm/queue.md | Create org-level .swarm/memory.md | Create .swarm/workflows/agent-session.md | Create .swarm/workflows/cross-division.md | Create README.md (root level) | Unify src/swarm_city and src/swarm_city_mcp into single package | Create docs/PLATFORM_SETUP.md (shim templates) | Update oasis-x/AGENTS.md to point at .swarm/BOOTSTRAP.md | . Handoff: Phase 0 scaffolding is essentially complete. The core models and file operations are implemented, and the CLI/MCP server can be installed from the root directory. Phase 1 — Division Bootstrapping . Goal: All active divisions have .swarm/ stubs and platform shims. Depends on: Phase 0 complete . | swarm init logic for file creation and level detection | Roll out to divisions: oasis-cloud, oasis-cloud-admin, oasis-weather, oasis-firmware, oasis-home, oasis-ui, oasis-forms, oasis-hardware, oasis-welcome | Populate each division’s context.md from existing AGENTS.md content | Add platform shims to each division (CLAUDE.md, .windsurfrules, .cursorrules) | Migrate any relevant Beads issues to division queue.md files | . Phase 2 — CLI Tool (Enhanced) . Goal: swarm command works for all core operations. Status: Mostly complete . | swarm status (state summary) | swarm claim / swarm done / swarm partial / swarm block | swarm add (ID auto-assignment) | swarm audit (stale claim detection, drift detection) | swarm handoff (handoff doc generation) | swarm ai (Natural language to swarm ops) | swarm sync (org state snapshot refresh) | Unit tests for queue.md parsing | Unified pyproject.toml for easy distribution | . Phase 3 — MCP Server (Enhanced) . Goal: swarm_* tools available in all MCP-compatible platforms. Status: Mostly complete . | MCP server implementation using unified models/operations | Support for all core operations: claim, done, add, state, queue, context | File locking for atomic writes (verify implementation) | Platform setup docs (Claude Code, Windsurf, Cursor, Gemini, OpenCode) | Test with Claude Code MCP config | . Phase 4 — CI/CD + Git Topology . Goal: Drift check runs on every PR. Org has git history. Depends on: Phase 1 . | [~] Add swarm-drift-check.yml to oasis-cloud-admin — dropped 2026-10-30 (workflow removed) | [~] Roll out to all active division repos — dropped 2026-10-30 | Initialize oasis-x as thin git repo (track .swarm/ + swarm-city/ only) | First commit of all Phase 0–1 .swarm/ files | Configure GitHub repo for oasis-x (org visibility) | . Phase 5 — Remove Beads . Goal: No .beads/ directories anywhere. Depends on: Phase 1 . | Export Beads JSONL backup: bd export --output .beads/backup/ | Archive JSONL files in swarm-city/archive/beads-migration/ | Delete .beads/ from oasis-home | Uninstall bd CLI globally | Remove .beads/ from any other repos if present | . ",
     "url": "/dot_swarm/ARCHITECTURE.html#11-implementation-phases",
     
     "relUrl": "/ARCHITECTURE.html#11-implementation-phases"
@@ -155,7 +155,7 @@
   },"22": {
     "doc": "CLI Reference",
     "title": "Memory &amp; Audit",
-    "content": "swarm audit . Check for drift: stale claims, blocked items, pending items, security scan, and AI-powered code-vs-docs drift check. swarm audit # Basic: stale claims + blocked items (always shown) swarm audit --pending # Also list all pending items swarm audit --security # Add adversarial content scan of .swarm/ files swarm audit --drift # Add AI code-vs-docs drift check (requires LLM backend) swarm audit --trail # Verify pheromone trail HMAC signatures swarm audit --full # All of the above swarm audit --since 24 # Stale threshold in hours (default: 48) . --security scans .swarm/ markdown files and platform shims (CLAUDE.md, .windsurfrules, .cursorrules) for: . | CRITICAL: Prompt injection, instruction erasure, persona hijacking, jailbreaks, LLM template injection | HIGH: Non-disclosure directives, hidden instructions, control characters, priority manipulation | MEDIUM: Hidden HTML/markdown comments, HTML injection, code injection | . --drift runs the same AI analysis as the GitHub Actions drift-check workflow, locally. Compares the last 5 commits against .swarm/ state to detect misalignment. --trail re-verifies every HMAC-SHA256 signature in trail.log. Tampered entries are flagged with the agent fingerprint responsible. swarm heal . Full health pass: alignment + security scan + trail verification. Runs everything in sequence and logs all security findings to memory.md (findings are never silently swallowed). swarm heal # Read-only health check swarm heal --fix # Quarantine adversarial content + block tampered trail signers swarm heal --depth 2 # Descend two levels into child divisions (default: 1) . Sections run by swarm heal: . | Alignment — ascend (local ↔ parent) + descend (local ↔ children). Identifies orphaned items with no cross-division links. | Queue Health — stale claims, blocked items, pending item count. | Security Scan — same 18-pattern scan as swarm audit --security, covering all .swarm/ files and platform shims. | Pheromone Trail Integrity — HMAC-SHA256 re-verification of trail.log. | Summary — total issues, memory.md log entry, remediation hint if --fix not used. | . With --fix: . | Copies flagged files to .swarm/quarantine/&lt;timestamp&gt;_&lt;file&gt;.bak for human forensic review. Does not auto-delete content — humans must excise injections. | Blocks HMAC fingerprints of tampered trail entries in .swarm/blocked_peers.json. | Run swarm heal again after cleaning to confirm resolution. | . swarm handoff . Print a structured handoff note for the current session — what was done, what’s in flight, what’s next. Useful at the end of a work session. swarm handoff swarm handoff --format json # machine-readable output . ",
+    "content": "swarm audit . Check for drift: stale claims, blocked items, pending items, security scan, and AI-powered code-vs-docs drift check. swarm audit # Basic: stale claims + blocked items (always shown) swarm audit --pending # Also list all pending items swarm audit --security # Add adversarial content scan of .swarm/ files swarm audit --drift # Add AI code-vs-docs drift check (requires LLM backend) swarm audit --trail # Verify pheromone trail HMAC signatures swarm audit --full # All of the above swarm audit --since 24 # Stale threshold in hours (default: 48) . --security scans .swarm/ markdown files and platform shims (CLAUDE.md, .windsurfrules, .cursorrules) for: . | CRITICAL: Prompt injection, instruction erasure, persona hijacking, jailbreaks, LLM template injection | HIGH: Non-disclosure directives, hidden instructions, control characters, priority manipulation | MEDIUM: Hidden HTML/markdown comments, HTML injection, code injection | . --drift runs an AI analysis locally. Compares the last 5 commits against .swarm/ state to detect misalignment. --trail re-verifies every HMAC-SHA256 signature in trail.log. Tampered entries are flagged with the agent fingerprint responsible. swarm heal . Full health pass: alignment + security scan + trail verification. Runs everything in sequence and logs all security findings to memory.md (findings are never silently swallowed). swarm heal # Read-only health check swarm heal --fix # Quarantine adversarial content + block tampered trail signers swarm heal --depth 2 # Descend two levels into child divisions (default: 1) . Sections run by swarm heal: . | Alignment — ascend (local ↔ parent) + descend (local ↔ children). Identifies orphaned items with no cross-division links. | Queue Health — stale claims, blocked items, pending item count. | Security Scan — same 18-pattern scan as swarm audit --security, covering all .swarm/ files and platform shims. | Pheromone Trail Integrity — HMAC-SHA256 re-verification of trail.log. | Summary — total issues, memory.md log entry, remediation hint if --fix not used. | . With --fix: . | Copies flagged files to .swarm/quarantine/&lt;timestamp&gt;_&lt;file&gt;.bak for human forensic review. Does not auto-delete content — humans must excise injections. | Blocks HMAC fingerprints of tampered trail entries in .swarm/blocked_peers.json. | Run swarm heal again after cleaning to confirm resolution. | . swarm handoff . Print a structured handoff note for the current session — what was done, what’s in flight, what’s next. Useful at the end of a work session. swarm handoff swarm handoff --format json # machine-readable output . ",
     "url": "/dot_swarm/CLI_REFERENCE.html#memory--audit",
     
     "relUrl": "/CLI_REFERENCE.html#memory--audit"
@@ -210,355 +210,348 @@
     "relUrl": "/CLI_REFERENCE.html#spawn--crawl"
   },"30": {
     "doc": "CLI Reference",
-    "title": "Setup &amp; CI",
-    "content": "swarm setup-drift-check . Install the swarm-drift-check.yml GitHub Actions workflow into the current repo. Uses the gh CLI to set secrets if needed. swarm setup-drift-check # install workflow file only swarm setup-drift-check --commit # also commit + push . See Drift Check Setup for AWS Bedrock prerequisites. ",
-    "url": "/dot_swarm/CLI_REFERENCE.html#setup--ci",
-    
-    "relUrl": "/CLI_REFERENCE.html#setup--ci"
-  },"31": {
-    "doc": "CLI Reference",
     "title": "Item ID Convention",
     "content": "&lt;DIVISION-CODE&gt;-&lt;3-digit-number&gt; . | Division | Code | . | Org level | ORG | . | api-service | API | . | auth-service | AUTH | . | dashboard | DASH | . | mobile-app | MOB | . | firmware | FW | . | docs | DOC | . | infra | INF | . | homelab | LAB | . | dot_swarm | SWC | . IDs are assigned sequentially and never reused. ",
     "url": "/dot_swarm/CLI_REFERENCE.html#item-id-convention",
     
     "relUrl": "/CLI_REFERENCE.html#item-id-convention"
-  },"32": {
+  },"31": {
     "doc": "CLI Reference",
     "title": "Security &amp; Trust Model",
     "content": "Pheromone Trail Signing . Every swarm init generates a per-swarm HMAC-SHA256 signing identity: . | File | Description | Commit? | . | .swarm/identity.json | Public fingerprint (swarm ID, algorithm, created) | ✅ Yes | . | .swarm/.signing_key | 256-bit private HMAC key | ❌ No (.gitignored) | . | .swarm/trail.log | Append-only signed operation log | ❌ No (local only) | . | .swarm/blocked_peers.json | Blocked fingerprints | ✅ Optional | . Each swarm ai batch records a signed entry in trail.log: . {\"timestamp\":\"2026-04-06T14:00Z\",\"swarm_id\":\"a1b2c3d4\",\"fingerprint\":\"f8e7d6c5\",\"agent_id\":\"cascade\",\"op\":\"ai_batch\",\"payload\":{\"step\":1,\"ops\":[\"done\",\"write_state\"]},\"signature\":\"abc123...\"} . To verify the trail: swarm audit --trail or swarm heal. To block a bad actor: swarm heal --fix (auto-blocks tampered fingerprints). Adversarial Content Detection . swarm heal and swarm audit --security scan for 18 patterns across 3 severity levels: . | Severity | Categories | . | CRITICAL | PROMPT_INJECTION, INSTRUCTION_ERASURE, PERSONA_HIJACK, JAILBREAK, LLM_TEMPLATE_INJECTION, SAFETY_OVERRIDE | . | HIGH | NON_DISCLOSURE, CONTROL_CHARACTERS, PRIORITY_OVERRIDE | . | MEDIUM | HIDDEN_HTML_COMMENT, HIDDEN_MD_COMMENT, HTML_INJECTION, CODE_INJECTION | . Files scanned: state.md, queue.md, memory.md, context.md, BOOTSTRAP.md, workflows/*.md, CLAUDE.md, .windsurfrules, .cursorrules, .github/copilot-instructions.md. swarms.ai Integration . For multi-agent frameworks, use the built-in bridge: . from dot_swarm.swarms_provider import DotSwarmStateProvider, StigmergicSwarm # Inject .swarm/ state into any agent's system prompt provider = DotSwarmStateProvider(swarm_path=\"./.swarm\") system_prompt = provider.build_system_prompt(agent_name=\"Coordinator\") # Read queue state queue = provider.get_queue() # {\"active\": [...], \"pending\": [...], \"done\": [...]} # Apply AI response operations back to .swarm/ files results = provider.apply_operations(llm_response_json, agent_id=\"my-agent\") # Stigmergic multi-agent coordination (requires: pip install swarms) from swarms import Agent swarm = StigmergicSwarm(swarm_path=\".\", agents=[agent1, agent2], max_rounds=10) results = swarm.run(\"Implement the OAuth2 integration\") . Agents coordinate indirectly through .swarm/ files (stigmergic protocol) — no direct agent-to-agent message passing required. Full git audit trail maintained automatically. ",
     "url": "/dot_swarm/CLI_REFERENCE.html#security--trust-model",
     
     "relUrl": "/CLI_REFERENCE.html#security--trust-model"
-  },"33": {
+  },"32": {
     "doc": "Credits",
     "title": "Credits &amp; Inspirations",
     "content": "dot_swarm stands on the shoulders of decades of research into how complex, coordinated behavior emerges from simple local interactions — no central command required. ",
     "url": "/dot_swarm/CREDITS.html#credits--inspirations",
     
     "relUrl": "/CREDITS.html#credits--inspirations"
-  },"34": {
+  },"33": {
     "doc": "Credits",
     "title": "Primary Inspiration",
     "content": "Steve Yegge — “Welcome to Gas Town” . “I’m running 20-30 Claude Code agents simultaneously, every day… The trick is nondeterministic idempotence.” . Steve Yegge’s January 2026 essay “Welcome to Gas Town” is the direct inspiration for dot_swarm’s design philosophy. The essay describes coordinating large fleets of Claude Code agents across a real software organization — naming the challenge of making agent work idempotent under nondeterminism, and introducing the notion of MEOW (Molecular Expression of Work) as the unit of agent-driven progress. dot_swarm’s .swarm/ directory, queue.md lifecycle, and item-ID convention are a direct implementation of the patterns Yegge describes: small, claimable units of work that agents can pick up, checkpoint, and hand off without stepping on each other. ",
     "url": "/dot_swarm/CREDITS.html#primary-inspiration",
     
     "relUrl": "/CREDITS.html#primary-inspiration"
-  },"35": {
+  },"34": {
     "doc": "Credits",
     "title": "The Biological Argument",
     "content": "Central coordination is expensive. In the natural systems that inspired dot_swarm, it is avoided almost universally — and in the rare cases where a “central” figure exists, the burden of coordination is not placed on that figure at all. An ant or bee queen does not manage work. She does not assign tasks, resolve conflicts, or approve sub-team formation. She emits chemical markers — pheromone signals that encode colony state — and workers read those signals autonomously to decide what to do. The queen’s energy budget is not consumed by coordination overhead. Coordination is a property of the shared medium, not of any single agent. This design produces emergent capabilities no top-down architecture could replicate at the same cost: . | Hive splitting — when a colony grows beyond a threshold, a subset self-organises around a new queen without any central directive. Multi-master by default. | Task-oriented sub-teams — foraging, defence, nursing, and construction teams form and dissolve based on pheromone gradient signals, not management assignments. | Fault tolerance — loss of any individual, including the queen, does not immediately collapse coordination. The medium persists; workers re-orient. | . The single prerequisite for all of this: all members speak the same chemical language. Pheromone signals only work if every worker interprets them the same way. The protocol is the coordination. dot_swarm is a direct translation of this principle to software agent fleets. Models and tools that modify filesystem-native projects are better off leaving traces in their environment — readable by any subsequent agent — than reporting state to a central node around which complicated systems must be arranged to prevent bottlenecks and data loss from information overload. As long as agents speak the same language (follow BOOTSTRAP.md), coordination emerges from the files themselves. ",
     "url": "/dot_swarm/CREDITS.html#the-biological-argument",
     
     "relUrl": "/CREDITS.html#the-biological-argument"
-  },"36": {
+  },"35": {
     "doc": "Credits",
     "title": "Scientific Foundations",
     "content": "Stigmergy — Indirect Coordination via Environment . The .swarm/state.md “pheromone trail” pattern — where agents read and update shared environment state rather than communicating directly — is an instance of stigmergy, first described by French entomologist Pierre-Paul Grassé studying termite mound construction. Foundational Papers . 1. The original concept . Grassé, P.-P. (1959). La reconstruction du nid et les coordinations interindividuelles chez Bellicositermes natalensis et Cubitermes sp. La théorie de la stigmergie: Essai d’interprétation du comportement des termites constructeurs. Insectes Sociaux, 6(1), 41–81. Grassé coined “stigmergy” (stigma = mark, ergon = work) to explain how termites build kilometre-scale mounds without a blueprint or foreman — each worker responds to traces left in the structure itself. Key insight: coordination arises from the environment, not from inter-agent messaging. 2. The bridge to artificial systems . Theraulaz, G., &amp; Bonabeau, E. (1999). A brief history of stigmergy. Artificial Life, 5(2), 97–116. Traces stigmergy from Grassé’s termites through 40 years of ethology and into distributed AI, showing how the concept generalises from insects to any system where agents modify a shared medium and respond to those modifications. 3. The textbook . Bonabeau, E., Dorigo, M., &amp; Theraulaz, G. (1999). Swarm Intelligence: From Natural to Artificial Systems. Oxford University Press. The definitive reference for swarm intelligence. Covers self-organisation, stigmergy, emergent problem solving, and their engineering applications. dot_swarm’s multi-division “colony” model maps directly to the decentralised swarms described here. 4. Ant Colony Optimisation . Dorigo, M., Maniezzo, V., &amp; Colorni, A. (1996). Ant System: Optimization by a colony of cooperating agents. IEEE Transactions on Systems, Man, and Cybernetics — Part B, 26(1), 29–41. The paper that showed ant pheromone trails could solve NP-hard routing problems. Directly inspired dot_swarm’s priority-weighted queue: items claimed often accumulate implicit “pheromone weight” through repeated attention. 5. Stigmergy in engineering . Parunak, H. V. D. (1997). “Go to the ant”: Engineering principles from natural agent systems. Annals of Operations Research, 75, 69–101. One of the first papers to formally bridge stigmergy and software engineering, arguing that ants demonstrate scalable, fault-tolerant coordination principles directly applicable to distributed software systems. dot_swarm’s .swarm/ shared-file model is a filesystem implementation of precisely this principle. ",
     "url": "/dot_swarm/CREDITS.html#scientific-foundations",
     
     "relUrl": "/CREDITS.html#scientific-foundations"
-  },"37": {
+  },"36": {
     "doc": "Credits",
     "title": "Nature Collection",
     "content": "The Nature collection on Collective Behaviour in Animals gathers modern research on how signal trails, pheromone gradients, and local interaction rules produce colony-level intelligence — the same phenomena dot_swarm adapts for software agent fleets. ",
     "url": "/dot_swarm/CREDITS.html#nature-collection",
     
     "relUrl": "/CREDITS.html#nature-collection"
-  },"38": {
+  },"37": {
     "doc": "Credits",
     "title": "Protocol Engineering &amp; Federated Coordination",
     "content": "OGP — Open Gateway Protocol . Proctor, D. (2026). “Case Study: Building a Protocol in the Age of AI.” Trilogy AI Substack. https://trilogyai.substack.com/p/case-study-building-a-protocol-in . David Proctor’s public post-mortem on building OGP — a federated inter-agent protocol — is one of the most concrete accounts of what goes wrong when identity, trust, and persistence assumptions are made incorrectly in a multi-agent system. Two threads from this work are directly foundational to dot_swarm: . 1. Inter-agent identity and trust . OGP’s early design treated identity as a hostname:port pair — a mutable, network-layer address rather than a cryptographic fingerprint. This produced a class of bugs where peer identity silently shifted across restarts or network changes. The lesson, applied in federation.py: . “Identity is a fingerprint, never an address.” . dot_swarm’s doorman_check() always resolves from_fingerprint from the stored trusted_peers/ record — it never trusts the identity claimed in the message body itself. This is a direct application of the OGP post-mortem. 2. Security under adversarial conditions . The post-mortem surfaces a category of failure that is easy to miss when building in good faith: an attacker who controls the message body can impersonate any peer if the receiver trusts the sender’s own claim. This applies not only to federation but to any system that ingests external text — including LLM prompt contexts. This insight directly motivated dot_swarm’s security.py adversarial scanner: the same trust-the-claim failure mode that breaks cross-agent federation also enables prompt injection attacks (an adversarial “agent” claims authority it was not granted). The 18-pattern scanner, the three-layer doorman model, and the signed pheromone trail all address variants of this same root problem. Relationship to dot_swarm’s design: . | OGP lesson | dot_swarm implementation | . | Identity = fingerprint, not address | identity.json stores fingerprint; trust_peer() indexes on it | . | Persist before returning success | trust_peer() calls _atomic_write() before return | . | Never trust claimed sender ID | doorman_check() looks up stored record — ignores from_fingerprint field in message | . | Layered scopes limit blast radius | policy.md → trusted_peers/&lt;fp&gt;.json → runtime doorman_check() | . | HMAC is wrong for cross-party signing | HMAC retained for local trail only; Ed25519 documented as upgrade path | . ",
     "url": "/dot_swarm/CREDITS.html#protocol-engineering--federated-coordination",
     
     "relUrl": "/CREDITS.html#protocol-engineering--federated-coordination"
-  },"39": {
+  },"38": {
     "doc": "Credits",
     "title": "Design Lineage",
     "content": "| Biological concept | dot_swarm implementation | . | Termite pheromone deposit | state.md Current focus / Blockers | . | Ant trail reinforcement | Item priority + reclaim count | . | Nest-site recruitment | swarm explore / swarm report heartbeat | . | Division of labour | Per-division .swarm/ isolation | . | Colony memory | memory.md append-only log | . | Handoff signal | swarm handoff structured note | . If you have built something with dot_swarm, we’d love to hear about it. Open an issue or start a discussion on GitHub. ",
     "url": "/dot_swarm/CREDITS.html#design-lineage",
     
     "relUrl": "/CREDITS.html#design-lineage"
-  },"40": {
+  },"39": {
     "doc": "Credits",
     "title": "Credits",
     "content": " ",
     "url": "/dot_swarm/CREDITS.html",
     
     "relUrl": "/CREDITS.html"
-  },"41": {
+  },"40": {
     "doc": "Agent Roles",
     "title": "Agent Roles",
     "content": "Agent roles extend dot_swarm coordination with structured behaviors for multi-agent task mode. Every role is opt-in — enabling one never affects queue.md or any work items until that role’s commands are explicitly invoked. Roles are stored as JSON configs in .swarm/roles/&lt;name&gt;.json and can be toggled at any time. swarm role list # see all roles + status swarm role enable inspector # turn on swarm role disable inspector # turn off (removes config file) swarm role show inspector # full config . ",
     "url": "/dot_swarm/ROLES.html",
     
     "relUrl": "/ROLES.html"
-  },"42": {
+  },"41": {
     "doc": "Agent Roles",
     "title": "Available Roles",
     "content": "| Role | Purpose | Key command | . | inspector | Requires proof-of-work before an item can be marked done | swarm inspect | . | supervisor | Holistic progress view across all active items and phases | swarm spawn --role supervisor | . Watchdog and Librarian are now built-in. The watchdog escalation pattern is now intrinsic to the inspector retry loop — items auto-BLOCK when retries are exhausted, surfacing in swarm audit and swarm status without a separate role agent. Use swarm spawn --role watchdog to open a dedicated monitoring window if you want a live operator. The librarian catalog function is now swarm crawl. Run it alongside swarm heal for a full context + alignment pass — no separate role required. ",
     "url": "/dot_swarm/ROLES.html#available-roles",
     
     "relUrl": "/ROLES.html#available-roles"
-  },"43": {
+  },"42": {
     "doc": "Agent Roles",
     "title": "Inspector",
     "content": "The inspector role solves the “fake done” problem — an LLM worker marking an item complete without actually finishing the work. When enabled, workers cannot call swarm done directly. Instead they must attach proof of work and let a designated inspector agent verify it. Enabling . swarm role enable inspector swarm role enable inspector --max-iterations 3 --require-proof \"branch,commit,tests\" swarm role enable inspector --agent inspector-bot-1 . | Option | Default | Description | . | --max-iterations | 3 | Fail count before watchdog escalation | . | --require-proof | branch,commit | Comma-separated required proof fields | . | --agent | (any) | Assign a specific agent ID as inspector | . Worker flow . # 1. Claim and do the work normally swarm claim CLD-042 # 2. Instead of swarm done, mark partial and attach proof swarm partial CLD-042 --proof \"branch:feature/oauth2 commit:abc1234 tests:42/42\" # ^ dot_swarm validates that all required proof fields are present and warns if not . The proof: field accepts a space-separated list of key:value pairs. Required fields are checked against require_proof_fields in the role config. Common fields: . | Field | Example | . | branch | branch:feature/oauth2 | . | commit | commit:abc1234 | . | tests | tests:42/42 | . | diff | diff:+187/-23 | . | pr | pr:47 | . Inspector flow . # Inspector agent (or human) reviews the proof, then passes or fails swarm inspect CLD-042 --pass swarm inspect CLD-042 --pass --note \"Tests pass, code reviewed, merging\" swarm inspect CLD-042 --fail --reason \"Edge case X not handled — see test_auth.py:142\" . On --pass: the item is marked Done, the inspector’s agent ID is recorded in the trail, and the operation is signed in trail.log. On --fail: the item is re-opened to OPEN state, proof: is cleared, inspect_fails is incremented, and a failure note is appended. The worker will see the item in swarm ready again and can re-claim it. Iteration limit and escalation . After max_iterations consecutive failures: . | If the watchdog role is also enabled: a watchdog alert is printed and the item is flagged for human review. | If watchdog is not enabled: a plain warning is shown with the command to enable it. | . Watchdog alert: CLD-042 has failed inspection 3/3 times. Human review required. Bypassing (human override) . swarm done CLD-042 --force # skip inspector gate; for human directors only . How the proof is stored . The proof: and inspect_fails: fields are stored inline in queue.md, just like priority: and notes: — fully human-readable and git-diffable: . - [&gt;] [CLD-042] [CLAIMED · worker-1 · 2026-04-18T10:00Z · PARTIAL] Implement OAuth2 priority: high | project: auth proof: branch:feature/oauth2 commit:abc1234 tests:42/42 inspect_fails: 1 . ",
     "url": "/dot_swarm/ROLES.html#inspector",
     
     "relUrl": "/ROLES.html#inspector"
-  },"44": {
+  },"43": {
     "doc": "Agent Roles",
     "title": "Watchdog (built-in)",
     "content": "Watchdog escalation is now intrinsic to the inspector retry loop — no separate role agent is required. When an item’s inspect_fails reaches its effective retry limit, it is automatically set to BLOCKED with a clear reason. Blocked items surface immediately in swarm audit, swarm status, and swarm heal. Retry limit precedence: . | Task level — max_retries: field on the queue item (set via swarm add --max-retries N) | Role level — max_iterations in .swarm/roles/inspector.json (set via swarm role enable inspector --max-iterations N) | Default — 3 | . # Task-level override (this item gets 5 tries, not the role default) swarm add \"Implement OAuth2\" --max-retries 5 # Role-level default swarm role enable inspector --max-iterations 3 . When exhausted: . Max retries exhausted: [SWC-042] is now BLOCKED (3/3 fails). Use 'swarm unblock --reclaim' to manually reassign, or 'swarm done --force' to override. To run a live watchdog monitoring window (optional): . swarm spawn --role watchdog # opens a tmux window running swarm audit --full in a loop . ",
     "url": "/dot_swarm/ROLES.html#watchdog-built-in",
     
     "relUrl": "/ROLES.html#watchdog-built-in"
-  },"45": {
+  },"44": {
     "doc": "Agent Roles",
     "title": "Supervisor",
     "content": "The supervisor provides a holistic view across all active items and phases. Launch one as a named tmux window using swarm spawn: . swarm spawn --role supervisor # opens tmux window with SWARM_ROLE=supervisor set . Inside the supervisor window the agent has access to all swarm commands. Useful starting points: . swarm explore --depth 3 # colony heartbeat across all divisions swarm report --only active # active items only, all divisions swarm audit --full # full health pass . Roadmap: . | swarm supervisor brief --format md — structured progress brief for a human director | Hierarchy roll-up via swarm ascend / descend | . ",
     "url": "/dot_swarm/ROLES.html#supervisor",
     
     "relUrl": "/ROLES.html#supervisor"
-  },"46": {
+  },"45": {
     "doc": "Agent Roles",
     "title": "Librarian (built-in via swarm crawl)",
     "content": "Directory cataloging is now a first-class command rather than a role agent: . swarm crawl # catalog directory tree → context.md swarm crawl --create-items # also create queue items for undocumented dirs swarm heal # verify alignment after crawl . See CLI Reference → swarm crawl for full options. To run a live librarian window that monitors a directory for new uncatalogued content: . swarm spawn --role watchdog # reuse watchdog window for periodic crawl + heal . ",
     "url": "/dot_swarm/ROLES.html#librarian-built-in-via-swarm-crawl",
     
     "relUrl": "/ROLES.html#librarian-built-in-via-swarm-crawl"
-  },"47": {
+  },"46": {
     "doc": "Agent Roles",
     "title": "Role Interaction Map",
     "content": "Worker agent (swarm spawn SWC-042 --agent opencode) │ ├── swarm claim &lt;id&gt; ├── ... do work ... └── swarm partial &lt;id&gt; --proof \"branch:X commit:Y tests:N/N\" │ ▼ Inspector agent (swarm spawn --role inspector) │ ├── swarm inspect &lt;id&gt; --pass │ └──► DONE (signed in trail.log) │ └── swarm inspect &lt;id&gt; --fail --reason \"...\" └──► re-OPEN (inspect_fails++) │ │ (if inspect_fails &gt;= effective max_retries) ▼ BLOCKED ←── automatic, no external agent needed (surfaces in swarm audit / swarm status) │ ▼ human: swarm unblock --reclaim or: swarm done --force . ",
     "url": "/dot_swarm/ROLES.html#role-interaction-map",
     
     "relUrl": "/ROLES.html#role-interaction-map"
-  },"48": {
+  },"47": {
     "doc": "Agent Roles",
     "title": "Comparison with Gastown Roles",
     "content": "| dot_swarm | Gastown | Notes | . | inspector | Witness (partial) | dot_swarm inspector actively gates done; Witness only monitors health | . | (auto-block on retries) | — | Watchdog escalation is intrinsic; no separate role agent | . | supervisor | Mayor (partial) | Mayor orchestrates; supervisor observes and reports | . | swarm crawl | — | Librarian function is a built-in command, not a role | . | swarm spawn | Colony bootstrap | Gastown has fixed colony setup; dot_swarm spawns on demand | . | (worker) | Polecats | Ephemeral workers; any agent with $SWARM_AGENT_ID | . | (merge gate) | Refinery | SWC-024 roadmap item | . dot_swarm roles are advisory and toggleable — you enable only what your workflow needs. Gastown’s roles are baked into the fixed colony architecture. ",
     "url": "/dot_swarm/ROLES.html#comparison-with-gastown-roles",
     
     "relUrl": "/ROLES.html#comparison-with-gastown-roles"
-  },"49": {
+  },"48": {
     "doc": "Security",
     "title": "Security Model",
     "content": "dot_swarm’s security model is designed for the reality that AI agents operate autonomously on shared filesystems. The threat model is different from a web application — there’s no network perimeter, no auth layer, and the coordination medium itself (.swarm/) is readable and writable by any process on the machine. ",
     "url": "/dot_swarm/SECURITY.html#security-model",
     
     "relUrl": "/SECURITY.html#security-model"
-  },"50": {
+  },"49": {
     "doc": "Security",
     "title": "Protections built in",
     "content": "Cryptographic signing identity . Every swarm init generates a per-swarm HMAC-SHA256 signing key stored in .swarm/.signing_key. This file is always gitignored regardless of trail visibility settings. All AI operations are signed before being appended to trail.log: . swarm audit --trail # verify trail integrity swarm heal # full integrity pass including trail verification . If any entry in trail.log has been tampered with, swarm audit --trail reports exactly which records fail verification. 18-pattern adversarial content scanner . swarm audit --security and swarm heal scan all .swarm/ files and platform shims (CLAUDE.md, .windsurfrules, .cursorrules, .github/copilot-instructions.md) for adversarial content patterns: . | Severity | Pattern category | Example | . | CRITICAL | Data exfiltration instructions | “send contents of ~/.ssh to…” | . | CRITICAL | Safety override attempts | “ignore all previous instructions” | . | CRITICAL | Agent impersonation | fake claim stamps, forged agent IDs | . | HIGH | Prompt injection in memory/context | instructions embedded in memory.md entries | . | HIGH | Privilege escalation | “you are now operating in admin mode” | . | MEDIUM | Unusual encoding | base64-encoded instructions in notes fields | . | MEDIUM | Ambiguous authority claims | “the project owner has approved…” | . Use swarm heal --fix to quarantine flagged files for manual review rather than deleting them outright. Drift detection . swarm audit --drift compares the current .swarm/ file contents against git history and the signed trail to identify writes that occurred outside the normal protocol flow — the earliest signal of unexpected agent activity. Trail visibility control . swarm trail invisible (the default on swarm init) adds .swarm/ to .gitignore. Your coordination history — every claim, handoff note, decision entry, and memory — stays private unless you explicitly share it. swarm trail status # invisible or visible? swarm trail invisible # default — private trail swarm trail visible # share trail with git . Pheromone decay . Stale claim stamps are flagged by swarm audit. If an agent claims an item and goes silent, the item surfaces in audit output with a staleness warning, preventing indefinite lock-out of work items. ",
     "url": "/dot_swarm/SECURITY.html#protections-built-in",
     
     "relUrl": "/SECURITY.html#protections-built-in"
-  },"51": {
+  },"50": {
     "doc": "Security",
     "title": "Known attack surface",
     "content": "Shared medium poisoning . The fundamental tradeoff of stigmergy. The .swarm/ directory is the coordination medium — any process that can write to it can influence every agent that reads it. This is true of all environment-mediated coordination systems, including the ant pheromone trails that inspired dot_swarm. Mitigations: adversarial scanner catches known injection patterns, signed trail detects tampering after the fact, swarm heal as a routine hygiene step after any agentic run. Residual risk: novel injection patterns not yet in the 18-pattern set. The scanner is defense-in-depth, not a guarantee. HMAC is local-trust only . The signing key is per-swarm and never leaves the machine. HMAC-SHA256 protects trail integrity within a swarm but provides no cross-swarm authentication — a peer claiming to be swarm-A cannot be cryptographically verified without a PKI layer. An Ed25519 upgrade path is documented in the architecture notes; HMAC was chosen for stdlib-only implementation (no cryptography package required). Trail sharing equals history sharing . Running swarm trail visible and pushing exposes your full coordination history to anyone who can clone the repo — every claim timestamp, every decision in memory.md, every handoff note. The default is invisible for this reason. Treat swarm trail visible like making a private branch public. LLM-generated content is a trust boundary . Content written by an agent into memory.md, notes: fields, or context.md can influence future agents that read those files. This is the environment-poisoning attack surface unique to stigmergic systems: a compromised agent writes a plausible-looking pheromone that steers subsequent agents in the wrong direction. The 18-pattern scanner is designed to catch the known forms of this attack. It does not — and cannot — catch all possible adversarial framings. Running swarm heal after any agentic session is the operational control. No real-time federation yet . Cross-swarm coordination currently uses file-based OGP-lite signed messages (inbox/ outbox directories). There is no live network connection between swarms. This means there is also no real-time attack surface from remote swarms — but it also means federation integrity relies on the transport (git, file copy, etc.) rather than end-to-end cryptographic verification of message origin. Live networked federation with Ed25519 message signing is planned for a future release if the userbase warrants it. ",
     "url": "/dot_swarm/SECURITY.html#known-attack-surface",
     
     "relUrl": "/SECURITY.html#known-attack-surface"
-  },"52": {
+  },"51": {
     "doc": "Security",
     "title": "Security commands reference",
     "content": "swarm audit --security # scan for adversarial content patterns swarm audit --trail # verify trail.log cryptographic integrity swarm audit --drift # detect out-of-band file modifications swarm audit --full # all of the above + stale claim check swarm heal # full integrity pass + optional --fix quarantine swarm trail status # show current visibility swarm trail invisible # hide .swarm/ from git (default on init) . ",
     "url": "/dot_swarm/SECURITY.html#security-commands-reference",
     
     "relUrl": "/SECURITY.html#security-commands-reference"
-  },"53": {
+  },"52": {
     "doc": "Security",
     "title": "The swarm key (Phase 1 shipped)",
     "content": "Phase 1 of SWC-046 has landed. swarm key init generates a per-swarm ChaCha20-Poly1305 key (.swarm/.swarm_key, gitignored), and from that moment on every entry written to trail.log is sealed as an AEAD envelope of the form swae1:&lt;base64&gt; — opaque on disk to anyone without the key, transparently decrypted by swarm reads. Trails written before key adoption stay readable as plaintext, so adopting a key does not invalidate prior history. pip install 'dot-swarm[crypto]' # one-time: pulls the cryptography wheel swarm key init # generate the swarm key swarm key status # algorithm, fingerprint, created swarm key rotate # new key + re-seal every existing envelope swarm key seal .swarm/memory.md # encrypt one file in-place swarm key open .swarm/memory.md # decrypt back to plaintext . rotate retains the previous key as .swarm_key.old so partially-rotated state remains readable until you confirm the rewrap and delete it. Phases 2 and 3 (auto-encrypted memory.md / state.md writes; federation key exchange) are the remaining roadmap items. ",
     "url": "/dot_swarm/SECURITY.html#the-swarm-key-phase-1-shipped",
     
     "relUrl": "/SECURITY.html#the-swarm-key-phase-1-shipped"
-  },"54": {
+  },"53": {
     "doc": "Security",
     "title": "Roadmap: the swarm key (original design notes)",
     "content": "The fundamental objection to stigmergic coordination is that the shared medium is, by definition, shared. Anyone who can write to .swarm/ can in principle drop a poisoned pheromone. The current mitigations (HMAC-signed trail, 18-pattern adversarial scanner, drift detection, swarm heal) catch the known forms of this attack after the fact. The next layer catches it at write time — and it does so by borrowing the trick that real swarms use. The biological prior . Ant colonies don’t get poisoned by random pheromone-emitting intruders. Each colony’s foragers carry a colony-specific cuticular hydrocarbon signature, and nestmate recognition is built around that signature: a forager that smells wrong is attacked on contact. Honeybees do the same with comb-wax esters. The signal isn’t just emitted into the environment — it’s signed by the colony’s chemistry, and the colony’s response to a wrong signature is reflexive and fast. This is not a metaphor; it is exactly the property we want from the trail. Design . swarm init will generate, in addition to the HMAC signing key, a per-swarm swarm key — a 256-bit symmetric key suitable for XChaCha20-Poly1305 AEAD. Both keys live at .swarm/.signing_key and .swarm/.swarm_key, both gitignored unconditionally. All writes to coordination files (trail.log entries, memory.md records, claim notes, decision entries) are sealed with the swarm key before being persisted. The on-disk format becomes a sequence of authenticated ciphertext records with public metadata (timestamp, agent fingerprint) and sealed payload. This gives three properties at once: . | Confidentiality. A pushed .swarm/ directory — including under swarm trail visible — reveals no claim history, no decision content, no memory. The trail is hidden in plain sight; only swarms holding the key can read it. | Authenticity. AEAD tags fail verification on any forged or modified record. A process that lacks the swarm key cannot insert a record that any honest reader will accept, and cannot tamper with an existing record without breaking its tag. | Reflexive intrusion response. swarm heal and swarm audit --trail become first-line antibody responses: a record that fails AEAD verification is quarantined immediately and surfaced as a CRITICAL finding. The “colony” reacts to a wrong signature the same way an ant colony does — fast, local, and without consulting a central authority. | . What this changes about the threat model . | Shared medium poisoning stops being a defense-in-depth problem. Without the swarm key, an adversary cannot write a valid pheromone — only an obviously invalid one, which is exactly the case the colony is built to handle. | Trail sharing equals history sharing stops being a sharp tradeoff. swarm trail visible becomes safe by default: the trail is durable, auditable to the swarm, and opaque to everyone else. | Cross-swarm trust gets a clean primitive. Federation between swarms can exchange swarm keys (or per-channel sub-keys) under explicit policy, replacing the current OGP-lite signed-message scheme with end-to-end authenticated channels. | . What this does not change . | A compromised agent that legitimately holds the swarm key can still write poisoned content. The 18-pattern adversarial scanner is still the layer that catches this. AEAD prevents forgery from outside, not betrayal from inside — and biology is the same: a worker bee that has gone rogue still smells right. | Key compromise is catastrophic. Key rotation (swarm key rotate) and a short-lived per-session subkey scheme are part of the planned design. | HMAC stays. The signing identity is a separate concern from payload confidentiality, and per-entry HMAC remains the simplest way to prove “this exact record was written by this exact agent” inside an already-decrypted trail. | . Phasing . | Phase 1 — swarm key generation, AEAD-sealed trail.log, swarm key rotate. | Phase 2 — extend AEAD to memory.md, state.md decision entries, and claim notes; transparent decryption in swarm reads. | Phase 3 — federation: swarm-to-swarm key exchange under Doorman policy, replacing file-based OGP-lite with authenticated channels. | . XChaCha20-Poly1305 was chosen for nonce-misuse resistance (24-byte random nonces) and stdlib-adjacent availability (pynacl or cryptography — both already common in the dependency closure of any project running an agent SDK). ",
     "url": "/dot_swarm/SECURITY.html#roadmap-the-swarm-key-original-design-notes",
     
     "relUrl": "/SECURITY.html#roadmap-the-swarm-key-original-design-notes"
-  },"55": {
+  },"54": {
     "doc": "Security",
     "title": "Threat model summary",
     "content": "| Threat | Mitigated by | Residual risk | . | Compromised agent writes to .swarm/ | Adversarial scanner + signed trail | Novel patterns evade scanner | . | Stale claim locks out work | Pheromone decay in swarm audit | None for honest timeouts | . | Trail tampered after the fact | HMAC-SHA256 per entry in trail.log | Key compromise | . | History exposed via git push | Trail invisible by default | User opts in knowingly | . | Cross-swarm identity spoofing | Fingerprint-indexed peer records | No PKI; HMAC only | . | LLM prompt injection via shared medium | 18-pattern scanner | Zero-day patterns | . | Rogue federation message | Doorman: policy → peer record → runtime | Transport-layer attacks | . ",
     "url": "/dot_swarm/SECURITY.html#threat-model-summary",
     
     "relUrl": "/SECURITY.html#threat-model-summary"
-  },"56": {
+  },"55": {
     "doc": "Security",
     "title": "Security",
     "content": " ",
     "url": "/dot_swarm/SECURITY.html",
     
     "relUrl": "/SECURITY.html"
-  },"57": {
+  },"56": {
     "doc": "Multi-Agent Workflow",
     "title": "Multi-Agent Workflow",
     "content": "This guide walks through the complete flow for running a multi-agent team with dot_swarm: spawning workers and role agents in tmux, enforcing proof-of-work via the inspector role, and merging completed items back to main. ",
     "url": "/dot_swarm/WORKFLOW.html",
     
     "relUrl": "/WORKFLOW.html"
-  },"58": {
+  },"57": {
     "doc": "Multi-Agent Workflow",
     "title": "Prerequisites",
     "content": "pip install dot-swarm brew install tmux # tmux 3.0+ required for swarm spawn . Plus one or more agent CLIs on your PATH: . | Agent | Install | . | opencode | opencode.ai | . | claude | claude.ai/code | . | ollama | ollama.com — then ollama pull llama3.2 | . | bedrock | pip install 'dot-swarm[ai]' + AWS credentials | . ",
     "url": "/dot_swarm/WORKFLOW.html#prerequisites",
     
     "relUrl": "/WORKFLOW.html#prerequisites"
-  },"59": {
+  },"58": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 1: Initialise the swarm",
     "content": "cd your-repo swarm init # creates .swarm/, generates signing identity swarm crawl # populate context.md with directory structure swarm add \"Implement OAuth2 login\" --priority high swarm add \"Add rate limiting to API\" --depends AUTH-001 swarm ready # confirm AUTH-001 is unblocked, AUTH-002 is not . ",
     "url": "/dot_swarm/WORKFLOW.html#step-1-initialise-the-swarm",
     
     "relUrl": "/WORKFLOW.html#step-1-initialise-the-swarm"
-  },"60": {
+  },"59": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 2: Enable the inspector role",
     "content": "The inspector role adds a proof-of-work gate — workers can’t call swarm done until they’ve attached evidence and an inspector has verified it. swarm role enable inspector \\ --max-iterations 3 \\ --require-proof \"branch,commit,tests\" . | Option | Meaning | . | --max-iterations 3 | Auto-BLOCK item after 3 consecutive failures | . | --require-proof \"branch,commit,tests\" | Worker must supply all three fields | . ",
     "url": "/dot_swarm/WORKFLOW.html#step-2-enable-the-inspector-role",
     
     "relUrl": "/WORKFLOW.html#step-2-enable-the-inspector-role"
-  },"61": {
+  },"60": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 3: Spawn a worker",
     "content": "swarm spawn opens a named tmux window, sets the SWARM_* environment variables, and auto-claims the item. swarm spawn AUTH-001 --agent opencode . What happens under the hood: . | A tmux session named swarm is created (or reused) | A window named AUTH-001 is opened with opencode running inside it | Three env vars are set before opencode starts: | . | Variable | Value | . | SWARM_AGENT_ID | e.g. spawn-AUTH-001-143022 | . | SWARM_ITEM_ID | AUTH-001 | . | SWARM_ROLE | worker | . | The item is claimed: AUTH-001 moves from Pending → Active in queue.md | . Attach to the worker window: . tmux attach -t swarm # attach to session # Ctrl-b + n # cycle windows # Ctrl-b + s # session picker . Worker options: . swarm spawn AUTH-001 --agent claude # use Claude Code instead swarm spawn AUTH-001 --agent ollama # use local Ollama model swarm spawn AUTH-001 --no-claim # open window without claiming swarm spawn AUTH-001 --session oauth # custom tmux session name . ",
     "url": "/dot_swarm/WORKFLOW.html#step-3-spawn-a-worker",
     
     "relUrl": "/WORKFLOW.html#step-3-spawn-a-worker"
-  },"62": {
+  },"61": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 4: Worker does the work",
     "content": "Inside the worker’s tmux window, the agent reads BOOTSTRAP.md and context.md automatically (if using opencode or Claude Code with MCP configured). It works the task, runs tests, pushes a branch. When finished, the worker attaches proof instead of calling swarm done: . swarm partial AUTH-001 \\ --proof \"branch:feature/oauth2 commit:abc1234 tests:42/42 pr:47\" . The proof: field is stored inline in queue.md and validated against the require-proof fields set during swarm role enable. Missing required fields produce a warning but don’t block the command. Common proof fields: . | Field | Example | . | branch | branch:feature/oauth2 | . | commit | commit:abc1234 | . | tests | tests:42/42 | . | pr | pr:47 | . | diff | diff:+187/-23 | . ",
     "url": "/dot_swarm/WORKFLOW.html#step-4-worker-does-the-work",
     
     "relUrl": "/WORKFLOW.html#step-4-worker-does-the-work"
-  },"63": {
+  },"62": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 5: Spawn an inspector",
     "content": "swarm spawn --role inspector . This opens a second tmux window named inspector with SWARM_ROLE=inspector. The inspector agent (or a human) reviews the proof and approves or rejects: . # Approve — item moves to Done, signed in trail.log swarm inspect AUTH-001 --pass swarm inspect AUTH-001 --pass --note \"Tests green, code reviewed, PR #47 approved\" # Reject — item returns to Open, proof cleared, inspect_fails incremented swarm inspect AUTH-001 --fail --reason \"Token refresh edge case not handled — see test_auth.py:142\" . On --fail: the item is re-opened, proof is cleared, and inspect_fails is incremented. The worker sees it in swarm ready again and can re-claim it. On exhaust: if inspect_fails reaches max-iterations, the item is auto-BLOCKed with a clear message: . Max retries exhausted: [AUTH-001] is now BLOCKED (3/3 fails). Use 'swarm unblock --reclaim' to manually reassign, or 'swarm done --force' to override. Blocked items surface immediately in swarm audit --full and swarm status. ",
     "url": "/dot_swarm/WORKFLOW.html#step-5-spawn-an-inspector",
     
     "relUrl": "/WORKFLOW.html#step-5-spawn-an-inspector"
-  },"64": {
+  },"63": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 6: Supervisor overview (optional)",
     "content": "A supervisor window gives a human director or orchestrator agent a live view across all active work: . swarm spawn --role supervisor . Inside the supervisor window: . swarm explore --depth 3 # colony heartbeat swarm report --only active # active items only swarm audit --full # full health + security pass swarm ready # what's unblocked right now . ",
     "url": "/dot_swarm/WORKFLOW.html#step-6-supervisor-overview-optional",
     
     "relUrl": "/WORKFLOW.html#step-6-supervisor-overview-optional"
-  },"65": {
+  },"64": {
     "doc": "Multi-Agent Workflow",
     "title": "Step 7: Merge",
     "content": "Once swarm inspect AUTH-001 --pass has run, AUTH-001 is Done and the branch is ready to merge. In the worker’s window (or a dedicated merge window): . gh pr merge 47 --squash --delete-branch . Then continue: swarm ready surfaces AUTH-002 (rate limiting), which was blocked on AUTH-001. Spawn a worker for it and repeat. ",
     "url": "/dot_swarm/WORKFLOW.html#step-7-merge",
     
     "relUrl": "/WORKFLOW.html#step-7-merge"
-  },"66": {
+  },"65": {
     "doc": "Multi-Agent Workflow",
     "title": "Human override",
     "content": "swarm done AUTH-001 --force # skip inspector gate entirely (human director only) swarm unblock AUTH-001 --reclaim # re-open a BLOCKED item for a fresh worker . ",
     "url": "/dot_swarm/WORKFLOW.html#human-override",
     
     "relUrl": "/WORKFLOW.html#human-override"
-  },"67": {
+  },"66": {
     "doc": "Multi-Agent Workflow",
     "title": "Full example session",
     "content": "# ── Terminal 1: setup ──────────────────────────────────────────────── swarm init --crawl swarm role enable inspector --max-iterations 3 --require-proof \"branch,commit,tests\" swarm add \"Implement OAuth2 login\" --priority high swarm add \"Add rate limiting\" --depends AUTH-001 # ── Spawn workers ──────────────────────────────────────────────────── swarm spawn AUTH-001 --agent opencode # worker window: AUTH-001 swarm spawn --role inspector # inspector window swarm spawn --role supervisor # supervisor window # ── Inside AUTH-001 worker window (opencode) ───────────────────────── # ... implement, test, push branch ... swarm partial AUTH-001 --proof \"branch:feature/oauth2 commit:abc1234 tests:42/42 pr:47\" # ── Inside inspector window ────────────────────────────────────────── swarm inspect AUTH-001 --pass --note \"All good, merging\" # ── Back in Terminal 1 ─────────────────────────────────────────────── gh pr merge 47 --squash --delete-branch swarm ready # AUTH-002 now unblocked swarm spawn AUTH-002 --agent opencode . ",
     "url": "/dot_swarm/WORKFLOW.html#full-example-session",
     
     "relUrl": "/WORKFLOW.html#full-example-session"
-  },"68": {
+  },"67": {
     "doc": "Multi-Agent Workflow",
     "title": "Environment variables reference",
     "content": "These are set automatically by swarm spawn in each tmux window: . | Variable | Set by | Description | . | SWARM_AGENT_ID | swarm spawn | Unique agent identifier for this window | . | SWARM_ITEM_ID | swarm spawn &lt;id&gt; | The item being worked | . | SWARM_ROLE | swarm spawn --role | worker, inspector, supervisor, or watchdog | . Any swarm command that accepts --agent will default to $SWARM_AGENT_ID if set. ",
     "url": "/dot_swarm/WORKFLOW.html#environment-variables-reference",
     
     "relUrl": "/WORKFLOW.html#environment-variables-reference"
-  },"69": {
+  },"68": {
     "doc": "Multi-Agent Workflow",
     "title": "Which AI backend to use?",
     "content": "| Backend | Best for | Setup | . | opencode | Full agentic coding (reads files, runs tests) | npm i -g opencode | . | claude | Claude Code interactive sessions | npm i -g @anthropic-ai/claude-code | . | ollama | Local/private models, no API keys | brew install ollama &amp;&amp; ollama pull llama3.2 | . | bedrock | AWS-native teams | pip install 'dot-swarm[ai]' + AWS creds | . Configure the default with swarm configure, or override per-command with --via: . swarm ai \"what should I work on?\" --via ollama swarm ai \"mark AUTH-001 done\" --via bedrock . ",
     "url": "/dot_swarm/WORKFLOW.html#which-ai-backend-to-use",
     
     "relUrl": "/WORKFLOW.html#which-ai-backend-to-use"
-  },"70": {
+  },"69": {
     "doc": "Home",
     "title": "The .Swarm Protocol",
     "content": "An ecologically-inspired, environment-first coordination protocol for multi-agent AI teams. No central node. No database. No credentials. Agents leave structured traces; the environment does the coordination. Documentation · CLI Reference · Agent Roles · GitHub . ",
     "url": "/dot_swarm/",
     
     "relUrl": "/"
-  },"71": {
+  },"70": {
     "doc": "Home",
     "title": "The Problem: Multi-Agent Coordination",
     "content": "Modern software teams run multiple AI coding agents simultaneously — Claude Code, Cursor, Windsurf, Gemini, opencode — across different repos and sessions. Without coordination: . | Two agents claim and implement the same task simultaneously | Context is lost when a chat session ends or a context window is compacted | Non-obvious decisions (why approach A over B) disappear with the session | The next agent has no idea what the previous one did, decided, or left in-flight | . Existing solutions require infrastructure that gets in the way: . | Jira / Linear / GitHub Issues — web UIs, API credentials, no agent-native format | Database-backed tools — binary files, server processes, another thing to run | Slack bots / webhooks — async, lossy, not git-auditable | Central orchestrators — the coordinator itself becomes the bottleneck; every assignment, conflict, and status check flows through one node that must be available, consistent, and fast enough for the whole fleet | . The answer isn’t a better tracker. It’s a different model entirely. ",
     "url": "/dot_swarm/#the-problem-multi-agent-coordination",
     
     "relUrl": "/#the-problem-multi-agent-coordination"
-  },"72": {
+  },"71": {
     "doc": "Home",
     "title": "Stigmergic Systems: Nature’s Answer",
     "content": "In nature, complex coordination emerges without central controllers. A bee queen does not dispatch workers or resolve conflicts. She emits chemical markers that encode colony state, and workers read those traces autonomously to decide what to do next. Ant colonies self-organize task specialization across hundreds of thousands of individuals through the same mechanism: indirect coordination through a shared medium. No bottleneck. No single point of failure. No credentials required. The key property that makes this work: all members speak the same chemical language. Every worker interprets the environment the same way. The signal is the protocol. dot_swarm applies this model directly to software agent fleets: . Agents that modify filesystem-native projects should leave traces in their environment for collaborative purposes, rather than reporting to a central node around which complicated systems must be arranged to prevent bottlenecks and data loss from information overload. graph TD A[Agent Session Start] --&gt; B[Read .swarm/BOOTSTRAP.md] B --&gt; C[Read .swarm/state.md &amp; queue.md] C --&gt; D{Find Work?} D -- Yes --&gt; E[swarm claim ID] E --&gt; F[Update .swarm/state.md] F --&gt; G[Perform Implementation] G --&gt; H[swarm done ID] H --&gt; I[Update .swarm/state.md &amp; trail.log] I --&gt; J[Git Push] J --&gt; K[Environment Updated] K --&gt; A D -- No --&gt; L[swarm handoff] L --&gt; J . The .swarm/ directory is the shared medium. state.md is the pheromone trail. BOOTSTRAP.md is the chemical language every agent reads first. Git is the transport. Signals decay. swarm audit flags stale claims. memory.md entries are dated. state.md timestamps tell any agent exactly how fresh the picture is. This isn’t another markdown-based task tracker. It’s a multi-master, environment-first coordination protocol — inspired by six decades of stigmergy research, built for the reality that AI agent fleets need to self-organize across repos, sessions, and tools without a central authority managing them. ",
     "url": "/dot_swarm/#stigmergic-systems-natures-answer",
     
     "relUrl": "/#stigmergic-systems-natures-answer"
-  },"73": {
+  },"72": {
     "doc": "Home",
     "title": "How It Works",
     "content": "The .swarm/ Directory . Every repository gets a .swarm/ directory. Five files are the protocol core: . | File | Role | . | BOOTSTRAP.md | Universal agent protocol — every agent reads this first | . | context.md | What this project is, its constraints, its architecture | . | state.md | Current focus, active items, blockers, handoff note | . | queue.md | Work items with claim stamps | . | memory.md | Non-obvious decisions and rationale (append-only) | . Additional opt-in files: trail.log (signed audit), schedules.md, workflows/, federation/, roles/. The Claim Pattern . Work items use inline stamps for optimistic concurrency — no lock server needed: . ## Active - [&gt;] [API-042] [CLAIMED · claude-code · 2026-03-26T14:30Z] Fix rate limiter memory leak priority: high | project: infra ## Pending - [ ] [API-043] [OPEN] Add distributed tracing to all endpoints priority: medium | project: observability depends: API-042 ## Done - [x] [API-041] [DONE · 2026-03-25T16:00Z] Migrate auth middleware to lifespan events project: infra . Dependency-Aware Work Discovery . swarm ready shows only items whose entire dependency chain is complete: . swarm ready # list what's safe to pick up right now swarm ready --json # machine-readable, for agent scripts . Hierarchical Coordination . graph LR subgraph Org [Organization Level] O_S[.swarm/] O_Q[queue.md] end subgraph DivA [Division A] A_S[.swarm/] A_Q[queue.md] end subgraph DivB [Division B] B_S[.swarm/] B_Q[queue.md] end O_Q -- refs --&gt; A_Q O_Q -- refs --&gt; B_Q A_Q -- depends --&gt; O_Q style Org fill:#f9f9f9,stroke:#333,stroke-width:2px . Organization (your-company/) ← cross-repo initiatives .swarm/ ├── Division (service-a/) ← single-repo work │ .swarm/ └── Division (service-b/) .swarm/ . Work items use level-prefixed IDs: ORG-001, API-042, MOB-017. Cross-division items live at org level with refs: pointers in each affected division’s queue. Navigating the hierarchy. swarm ascend checks whether the current division’s work aligns with org-level priorities — are we working on the right things? swarm descend checks whether org-level initiatives have corresponding tasks in each division — are we missing work anywhere? . ",
     "url": "/dot_swarm/#how-it-works",
     
     "relUrl": "/#how-it-works"
-  },"74": {
+  },"73": {
     "doc": "Home",
     "title": "Quick Start",
     "content": "Prerequisites . To use dot_swarm (especially the spawn and federation features), you need: . | Python 3.10+ | Git (for trail transport and swarm trail visibility) | tmux 3.0+ (required for swarm spawn worker/role isolation) | Optional: AWS CLI (for Bedrock AI backend) or Ollama (for local AI backend) | . Project management only . pip install dot-swarm cd your-repo swarm init # creates .swarm/ with signing identity swarm add \"Fix auth timeout\" --priority high swarm add \"Add distributed tracing\" --depends API-001 swarm ready # see what's unblocked right now swarm claim API-001 # ... do work ... swarm done API-001 --note \"Used exponential backoff with jitter\" swarm handoff # structured summary for next agent/human . With AI (AWS Bedrock) . pip install 'dot-swarm[ai]' swarm configure # set model + region once swarm ai \"what should I work on next?\" swarm ai \"implement the auth module, then the markets module\" --chain --max-steps 6 . With MCP (Claude Code / Cursor / Windsurf) . pip install dot-swarm # Add to ~/.claude/mcp_config.json: # { \"mcpServers\": { \"dot-swarm\": { \"command\": \"dot-swarm-mcp\" } } } # dot_swarm state is now available as MCP tools in your IDE agent . Multi-agent mode with spawning and roles . When multiple agents work in parallel, you need more than a queue — you need structured handoffs with proof-of-work gates. A worker shouldn’t mark a task done until an independent inspector verifies the output. This prevents agents from claiming completion on half-finished or broken work. swarm spawn launches agents in isolated tmux windows, each reading the same .swarm/ state. The inspector role gates completion: workers call swarm partial with proof (branch, commit, tests), and only an inspector’s swarm inspect --pass unlocks done. # Enable inspector role — workers must prove completion before done swarm role enable inspector --max-iterations 3 --require-proof \"branch,commit,tests\" # Spawn a worker agent in a named tmux window (auto-claims the item) swarm spawn API-042 --agent opencode # Worker attaches proof then hands off to inspector swarm partial API-042 --proof \"branch:feature/rate-limiter commit:abc1234 tests:87/87\" # Spawn inspector and supervisor as dedicated role windows swarm spawn --role inspector swarm spawn --role supervisor # Inspector passes or fails with a reason swarm inspect API-042 --pass swarm inspect API-042 --fail --reason \"Edge case under burst traffic — see test_rate_limiter.py:98\" # If inspect_fails exceeds max_retries, item auto-BLOCKs and surfaces in audit swarm audit --full . Directory cataloging . swarm crawl walks your working tree and builds a structural map in context.md. This gives incoming agents immediate orientation — what directories exist, what they contain, how the project is organized. Use --create-items to auto-generate queue entries for directories that need attention. Detecting staleness. The .swarm/ state can drift from the underlying codebase. Files referenced in context.md may be deleted; directories may be renamed; work items may reference code that no longer exists. swarm heal compares the current filesystem against recorded state and flags inconsistencies. swarm audit goes further — it checks claim age against a staleness threshold (default 24h), flags items whose dependencies have changed, and identifies orphaned entries that no longer map to anything in the code. # Walk the working tree and build context for all divisions swarm crawl # writes Directory Map to context.md swarm crawl --create-items # also creates queue items for uncatalogued dirs # Detect drift between .swarm/ state and actual codebase swarm heal # verify alignment after crawl # Audit for stale claims, broken dependencies, orphaned items swarm audit # quick check swarm audit --full # deep scan including staleness window . ",
     "url": "/dot_swarm/#quick-start",
     
     "relUrl": "/#quick-start"
-  },"75": {
+  },"74": {
     "doc": "Home",
     "title": "Command Reference",
     "content": "dot_swarm is a layered toolkit. Every layer is opt-in — start with zero dependencies and add AI, security, roles, and federation only when you need them. | Layer | Commands | Install | . | Core protocol | init status add claim done partial block ready handoff | pip install dot-swarm | . | Situational awareness | ls explore report audit heal crawl | base | . | Agent spawning | spawn — launch workers and roles in named tmux windows | base | . | Scheduling &amp; workflows | schedule workflow | base | . | Cross-repo federation | federation | base | . | Cryptographic signing | auto — every init generates an HMAC-SHA256 identity | base | . | AI operations | ai session configure | pip install 'dot-swarm[ai]' | . | Agent roles | role inspect — proof-of-work gate, inspector/supervisor roles | base | . | MCP server | dot-swarm-mcp — Claude Code / Cursor / Windsurf native | base | . ",
     "url": "/dot_swarm/#command-reference",
     
     "relUrl": "/#command-reference"
-  },"76": {
+  },"75": {
     "doc": "Home",
     "title": "Why Not a Central Service?",
     "content": "| Central-node approach | Swarm approach | . | Agents report in, wait for assignments | Agents read environment, self-assign | . | Server becomes single point of failure | .swarm/ files replicated by git | . | API credentials required per-agent | Plain file access, no auth layer | . | Context window dumps to external system | Context lives where the code lives | . | Bottleneck grows with fleet size | Throughput scales with number of agents | . | Complex de-duplication logic needed | Optimistic claims + audit resolves conflicts | . ",
     "url": "/dot_swarm/#why-not-a-central-service",
     
     "relUrl": "/#why-not-a-central-service"
-  },"77": {
+  },"76": {
     "doc": "Home",
     "title": "Security Model",
     "content": "What protects your swarm . Cryptographic identity. Every swarm init generates a per-swarm HMAC-SHA256 signing identity stored in .swarm/.signing_key (gitignored). All AI operations are signed and appended to trail.log, creating a tamper-evident audit chain. Adversarial content scanning. swarm heal and swarm audit --security scan all .swarm/ files and platform shims (CLAUDE.md, .cursorrules, etc.) for 18 patterns across three severity levels: . | Level | Examples | . | CRITICAL | instructions to exfiltrate data, override safety rules, impersonate agents | . | HIGH | prompt injection in memory/context files, fake claim stamps | . | MEDIUM | ambiguous authority claims, unusual base64-encoded content | . Drift detection. swarm audit --drift flags any .swarm/ file whose content diverges from the signed trail — the earliest signal that an agent has written something outside the normal protocol flow. Trail visibility control. swarm trail invisible (the default on swarm init) adds .swarm/ to .gitignore so your coordination history doesn’t leak when you push code. Run swarm trail visible only when you want to share the trail explicitly. Known attack surface . Shared medium poisoning. The .swarm/ directory is the coordination medium — a malicious agent that can write to it can influence every other agent that reads it. This is the fundamental tradeoff of any stigmergic system. Mitigations: adversarial scanner, signed trail, swarm heal as a continuous integrity pass. HMAC is local-trust only. The signing key is per-swarm and never shared. This protects trail integrity within a swarm but provides no cross-swarm authentication. An Ed25519 upgrade path is documented; HMAC was chosen for zero-dependency stdlib compatibility. Trail sharing equals history sharing. If you run swarm trail visible and push, your full coordination history — every claim, handoff note, and memory entry — goes with it. The default is invisible for this reason. Live federation is not yet implemented. Cross-swarm coordination currently works via file-based OGP-lite signed messages, not live network connections. Real-time inter-swarm signaling is planned if the userbase warrants it. LLM content is a trust boundary. Content written by an LLM into memory.md or notes: fields can influence future agents that read those files. The adversarial scanner reduces but does not eliminate this risk — novel injection patterns may evade static rules. Treat swarm heal as a necessary hygiene step after any agentic run. Coming: encrypted trails and the swarm key . The biological version of stigmergy already solves the obvious “anyone can drop a pheromone” problem: bees and ants don’t just emit signals, they emit signals stamped with a colony-specific chemical signature (cuticular hydrocarbons in ants, comb wax in bees). A foreign forager that wanders into the wrong hive smells wrong, and the colony attacks within seconds. The signal carries identity as part of the chemistry. dot_swarm’s planned swarm key brings the same property to the digital trail: . | swarm init generates an additional per-swarm symmetric key (XChaCha20-Poly1305). | All trail entries, claim notes, and memory.md writes are sealed with AEAD using the swarm key. Without the key, the trail is opaque ciphertext on disk — even with swarm trail visible, a pushed .swarm/ directory leaks no coordination history to anyone who clones it. | Any process that doesn’t hold the swarm key cannot forge an entry that will verify. AEAD authentication tags make tampering detectable per-entry, not just per-trail. | A foreign write — same filesystem, no key — is the digital equivalent of a wrong pheromone signature: it fails verification on the next read and swarm heal quarantines it instantly. The colony notices intruders the way colonies always have: by smell. | . This sits on top of the existing HMAC trail (which already detects post-hoc tampering) and turns “shared medium poisoning” from the fundamental tradeoff of stigmergy into a contained one — the medium is shared, but the language of the medium is not. Tracked as SWC-046 in .swarm/queue.md (the swarm’s own roadmap) with design discussion in docs/ARCHITECTURE.md → Design Roadmap and docs/SECURITY.md → Roadmap. See CLI Reference → Security &amp; Trust Model for full command reference. ",
     "url": "/dot_swarm/#security-model",
     
     "relUrl": "/#security-model"
-  },"78": {
+  },"77": {
     "doc": "Home",
     "title": "Credits",
     "content": "Inspired by Steve Yegge’s “Welcome to Gas Town” and grounded in stigmergy research spanning six decades, from Grassé’s termite mound studies (1959) through Dorigo’s Ant Colony Optimization (1996) to Bonabeau, Dorigo &amp; Theraulaz’s Swarm Intelligence (1999). ",
     "url": "/dot_swarm/#credits",
     
     "relUrl": "/#credits"
-  },"79": {
+  },"78": {
     "doc": "Home",
     "title": "License",
     "content": "MIT — github.com/oasis-main/dot_swarm . ",
     "url": "/dot_swarm/#license",
     
     "relUrl": "/#license"
-  },"80": {
+  },"79": {
     "doc": "Home",
     "title": "Home",
     "content": " ",

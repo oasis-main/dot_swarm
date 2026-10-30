@@ -749,141 +749,17 @@ No changes needed to existing git setup.</p>
 
 <h3 id="cross-repo-auditing">Cross-repo auditing</h3>
 
-<p>The CI/CD drift check (see section 10) uses GitHub API to read division <code class="language-plaintext highlighter-rouge">.swarm/state.md</code>
-files from their respective repos. No git submodules needed.</p>
+<p><code class="language-plaintext highlighter-rouge">swarm audit</code> reads each division’s <code class="language-plaintext highlighter-rouge">.swarm/</code> files from its own repo. No git submodules
+needed. (The CI/CD drift check of section 10 was removed 2026-10-30.)</p>
 
 <hr />
 
 <h2 id="10-cicd-documentation-drift-check">10. CI/CD Documentation Drift Check</h2>
 
-<h3 id="purpose">Purpose</h3>
-
-<p>When code changes are pushed to a division repo, a GitHub Action checks whether
-the division’s <code class="language-plaintext highlighter-rouge">.swarm/state.md</code> and <code class="language-plaintext highlighter-rouge">.swarm/queue.md</code> accurately reflect those changes.
-It calls Bedrock (Claude) to generate a natural-language assessment and posts it as a
-PR comment.</p>
-
-<h3 id="workflow-file-location">Workflow File Location</h3>
-
-<p><code class="language-plaintext highlighter-rouge">oasis-cloud-admin/.github/workflows/swarm-drift-check.yml</code>
-(The admin repo is the control plane — CI/CD lives here.)</p>
-
-<p>Or per-division at <code class="language-plaintext highlighter-rouge">&lt;repo&gt;/.github/workflows/swarm-drift-check.yml</code>.</p>
-
-<h3 id="workflow-spec">Workflow Spec</h3>
-
-<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">name</span><span class="pi">:</span> <span class="s">dot_swarm Drift Check</span>
-
-<span class="na">on</span><span class="pi">:</span>
-  <span class="na">pull_request</span><span class="pi">:</span>
-    <span class="na">types</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">opened</span><span class="pi">,</span> <span class="nv">synchronize</span><span class="pi">]</span>
-  <span class="na">push</span><span class="pi">:</span>
-    <span class="na">branches</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">dev</span><span class="pi">,</span> <span class="nv">prod</span><span class="pi">]</span>
-
-<span class="na">jobs</span><span class="pi">:</span>
-  <span class="na">drift-check</span><span class="pi">:</span>
-    <span class="na">runs-on</span><span class="pi">:</span> <span class="s">ubuntu-latest</span>
-    <span class="na">permissions</span><span class="pi">:</span>
-      <span class="na">pull-requests</span><span class="pi">:</span> <span class="s">write</span>
-      <span class="na">contents</span><span class="pi">:</span> <span class="s">read</span>
-
-    <span class="na">steps</span><span class="pi">:</span>
-      <span class="pi">-</span> <span class="na">uses</span><span class="pi">:</span> <span class="s">actions/checkout@v4</span>
-        <span class="na">with</span><span class="pi">:</span>
-          <span class="na">fetch-depth</span><span class="pi">:</span> <span class="m">0</span>  <span class="c1"># need full history for diff</span>
-
-      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Get changed files</span>
-        <span class="na">id</span><span class="pi">:</span> <span class="s">changes</span>
-        <span class="na">run</span><span class="pi">:</span> <span class="pi">|</span>
-          <span class="s">git diff --name-only origin/$...HEAD &gt; /tmp/changed_files.txt</span>
-          <span class="s">cat /tmp/changed_files.txt</span>
-
-      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Read .swarm state</span>
-        <span class="na">run</span><span class="pi">:</span> <span class="pi">|</span>
-          <span class="s">cat .swarm/state.md &gt; /tmp/state.md 2&gt;/dev/null || echo "(no state.md)" &gt; /tmp/state.md</span>
-          <span class="s">cat .swarm/queue.md &gt; /tmp/queue.md 2&gt;/dev/null || echo "(no queue.md)" &gt; /tmp/queue.md</span>
-
-      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Get diff summary</span>
-        <span class="na">run</span><span class="pi">:</span> <span class="pi">|</span>
-          <span class="s">git diff origin/$...HEAD -- '*.py' '*.ts' '*.rs' \</span>
-            <span class="s">| head -500 &gt; /tmp/diff.txt</span>
-
-      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Check drift with Bedrock</span>
-        <span class="na">id</span><span class="pi">:</span> <span class="s">drift</span>
-        <span class="na">env</span><span class="pi">:</span>
-          <span class="na">AWS_ACCESS_KEY_ID</span><span class="pi">:</span> <span class="s">$</span>
-          <span class="na">AWS_SECRET_ACCESS_KEY</span><span class="pi">:</span> <span class="s">$</span>
-          <span class="na">AWS_DEFAULT_REGION</span><span class="pi">:</span> <span class="s">us-east-1</span>
-        <span class="na">run</span><span class="pi">:</span> <span class="pi">|</span>
-          <span class="s">python3 - &lt;&lt; 'PYEOF'</span>
-          <span class="s">import boto3, json, sys</span>
-
-          <span class="s">bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')</span>
-
-          <span class="s">diff = open('/tmp/diff.txt').read()[:3000]</span>
-          <span class="s">state = open('/tmp/state.md').read()</span>
-          <span class="s">queue = open('/tmp/queue.md').read()[:2000]</span>
-          <span class="s">changed = open('/tmp/changed_files.txt').read()</span>
-
-          <span class="s">prompt = f"""You are reviewing a pull request for documentation drift in a dot_swarm-coordinated repository.</span>
-
-          <span class="s">dot_swarm uses .swarm/state.md and .swarm/queue.md to track agent coordination state.</span>
-
-          <span class="s">Changed files in this PR:</span>
-          <span class="s">{changed}</span>
-
-          <span class="s">Current .swarm/state.md:</span>
-          <span class="s">{state}</span>
-
-          <span class="s">Current .swarm/queue.md (first 2000 chars):</span>
-          <span class="s">{queue}</span>
-
-          <span class="s">Code diff (first 3000 chars):</span>
-          <span class="s">{diff}</span>
-
-          <span class="s">Check:</span>
-          <span class="s">1. Does state.md's "Current focus" reflect what these code changes implement?</span>
-          <span class="s">2. Are the relevant work items in queue.md marked as [DONE] or [CLAIMED]?</span>
-          <span class="s">3. Are there new items that should be added to queue.md based on TODOs or incomplete work?</span>
-          <span class="s">4. Does memory.md need a new entry for any non-obvious decisions in this diff?</span>
-
-          <span class="s">Respond in markdown. Be specific about line references when flagging issues.</span>
-          <span class="s">If everything looks good, say so briefly. Maximum 300 words."""</span>
-
-          <span class="s">response = bedrock.invoke_model(</span>
-              <span class="s">modelId='anthropic.claude-sonnet-4-6',</span>
-              <span class="s">body=json.dumps({</span>
-                  <span class="s">'anthropic_version': 'bedrock-2023-05-31',</span>
-                  <span class="s">'max_tokens': 500,</span>
-                  <span class="s">'messages': [{'role': 'user', 'content': prompt}]</span>
-              <span class="s">})</span>
-          <span class="s">)</span>
-          <span class="s">result = json.loads(response['body'].read())</span>
-          <span class="s">assessment = result['content'][0]['text']</span>
-
-          <span class="s">with open('/tmp/drift_assessment.md', 'w') as f:</span>
-              <span class="s">f.write(f"## dot_swarm Drift Check\n\n{assessment}")</span>
-          <span class="s">PYEOF</span>
-
-      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Post PR comment</span>
-        <span class="na">if</span><span class="pi">:</span> <span class="s">github.event_name == 'pull_request'</span>
-        <span class="na">uses</span><span class="pi">:</span> <span class="s">actions/github-script@v7</span>
-        <span class="na">with</span><span class="pi">:</span>
-          <span class="na">script</span><span class="pi">:</span> <span class="pi">|</span>
-            <span class="s">const fs = require('fs');</span>
-            <span class="s">const body = fs.readFileSync('/tmp/drift_assessment.md', 'utf8');</span>
-            <span class="s">await github.rest.issues.createComment({</span>
-              <span class="s">owner: context.repo.owner,</span>
-              <span class="s">repo: context.repo.repo,</span>
-              <span class="s">issue_number: context.payload.pull_request.number,</span>
-              <span class="s">body</span>
-            <span class="s">});</span>
-</code></pre></div></div>
-
-<h3 id="adding-to-each-division">Adding to Each Division</h3>
-
-<p>Once the workflow is tested in one repo, add to each division’s <code class="language-plaintext highlighter-rouge">.github/workflows/</code>.
-The <code class="language-plaintext highlighter-rouge">swarm init</code> command will eventually create this file automatically.</p>
+<p>Removed 2026-10-30. The <code class="language-plaintext highlighter-rouge">swarm-drift-check.yml</code> GitHub Actions workflow and the
+<code class="language-plaintext highlighter-rouge">swarm setup-drift-check</code> command are deprecated and deleted; <code class="language-plaintext highlighter-rouge">swarm init</code> no longer
+installs the workflow. Use <code class="language-plaintext highlighter-rouge">swarm audit --drift</code> to run the AI code-vs-docs check
+locally.</p>
 
 <hr />
 
@@ -966,8 +842,8 @@ The <code class="language-plaintext highlighter-rouge">swarm init</code> command
 <strong>Depends on</strong>: Phase 1</p>
 
 <ul class="task-list">
-  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Add <code class="language-plaintext highlighter-rouge">swarm-drift-check.yml</code> to oasis-cloud-admin (test on one repo first)</li>
-  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Roll out to all active division repos</li>
+  <li>[~] <del>Add <code class="language-plaintext highlighter-rouge">swarm-drift-check.yml</code> to oasis-cloud-admin</del> — dropped 2026-10-30 (workflow removed)</li>
+  <li>[~] <del>Roll out to all active division repos</del> — dropped 2026-10-30</li>
   <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Initialize <code class="language-plaintext highlighter-rouge">oasis-x</code> as thin git repo (track .swarm/ + swarm-city/ only)</li>
   <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />First commit of all Phase 0–1 .swarm/ files</li>
   <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Configure GitHub repo for oasis-x (org visibility)</li>
