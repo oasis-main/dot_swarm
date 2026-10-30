@@ -190,7 +190,6 @@ def init(ctx: click.Context, level: str | None, division_code: str | None,
 
     if is_div:
         _create_platform_shims(p)
-        _install_drift_check_workflow(p)
 
     if run_crawl:
         click.echo("\nRunning swarm crawl...")
@@ -211,8 +210,6 @@ def init(ctx: click.Context, level: str | None, division_code: str | None,
     click.echo("  2. Run 'swarm crawl' to catalogue subdirectories into context.md")
     click.echo("  3. Run 'swarm status' to verify")
     click.echo("  4. Run 'swarm add \"first task\"' to add a work item")
-    if is_div:
-        click.echo("  5. Add GEMINI_API_KEY to GitHub secrets to enable drift checks")
 
 
 # ---------------------------------------------------------------------------
@@ -3666,150 +3663,8 @@ def session_cmd(ctx: click.Context, interface: str, prompt: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# swarm setup-drift-check
-# ---------------------------------------------------------------------------
-
-@cli.command(name="setup-drift-check")
-@click.option("--repo", default=None, metavar="OWNER/REPO",
-              help="GitHub repo (default: detected from git remote)")
-@click.option("--region", default=None, metavar="REGION",
-              help="AWS region for Bedrock (default: us-east-1)")
-@click.option("--commit", is_flag=True,
-              help="Commit and push the workflow file after creating it")
-@click.option("--model", default=None, metavar="MODEL_ID",
-              help="Override Bedrock model ID (sets repo variable SWARM_BEDROCK_MODEL)")
-@click.pass_context
-def setup_drift_check(
-    ctx: click.Context,
-    repo: str | None,
-    region: str | None,
-    commit: bool,
-    model: str | None,
-) -> None:
-    """Install the dot_swarm drift-check GitHub Actions workflow.
-
-    Copies swarm-drift-check.yml to .github/workflows/, verifies AWS secrets
-    exist via gh CLI, and optionally commits + pushes.
-
-    Requires: gh CLI authenticated (run `gh auth login` if needed).
-    """
-    import shutil, subprocess
-
-    repo_root = _find_git_root()
-    if repo_root is None:
-        click.echo("Error: not inside a git repository.", err=True)
-        raise SystemExit(1)
-
-    # --- Check gh CLI -------------------------------------------------------
-    if not shutil.which("gh"):
-        click.echo("Error: gh CLI not found. Install from https://cli.github.com/", err=True)
-        raise SystemExit(1)
-
-    # --- Detect repo if not provided ----------------------------------------
-    if not repo:
-        result = subprocess.run(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
-            capture_output=True, text=True, cwd=repo_root,
-        )
-        if result.returncode != 0:
-            click.echo("Error: could not detect repo. Pass --repo OWNER/REPO.", err=True)
-            raise SystemExit(1)
-        repo = result.stdout.strip()
-
-    click.echo(f"Setting up drift check for: {repo}")
-
-    # --- Check / set AWS secrets --------------------------------------------
-    secrets_result = subprocess.run(
-        ["gh", "secret", "list", "--repo", repo],
-        capture_output=True, text=True,
-    )
-    existing_secrets = secrets_result.stdout
-
-    needed = {
-        "AWS_ACCESS_KEY_ID": "AWS access key ID",
-        "AWS_SECRET_ACCESS_KEY": "AWS secret access key",
-        "AWS_DEFAULT_REGION": f"AWS region (e.g. {region or 'us-east-1'})",
-    }
-    for secret_name, description in needed.items():
-        if secret_name in existing_secrets:
-            click.echo(f"  ✓ {secret_name} already set")
-        else:
-            value = click.prompt(f"  Enter {description} (or press Enter to skip)", default="", show_default=False)
-            if value:
-                subprocess.run(
-                    ["gh", "secret", "set", secret_name, "--repo", repo, "--body", value],
-                    check=True,
-                )
-                click.echo(f"  ✓ {secret_name} set")
-            else:
-                click.echo(f"  ⚠ {secret_name} skipped — add manually if needed")
-
-    # --- Set model variable if requested ------------------------------------
-    if model:
-        subprocess.run(
-            ["gh", "variable", "set", "SWARM_BEDROCK_MODEL", "--repo", repo, "--body", model],
-            check=True,
-        )
-        click.echo(f"  ✓ SWARM_BEDROCK_MODEL set to {model}")
-
-    # --- Copy workflow file -------------------------------------------------
-    workflow_dest = repo_root / ".github" / "workflows" / "swarm-drift-check.yml"
-    if workflow_dest.exists():
-        click.echo(f"\n  ✓ {workflow_dest.relative_to(repo_root)} already exists")
-    else:
-        _install_drift_check_workflow(repo_root)
-
-    # --- Commit and push if requested ---------------------------------------
-    if commit:
-        wf_rel = str(workflow_dest.relative_to(repo_root))
-        subprocess.run(["git", "add", wf_rel], cwd=repo_root, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "chore: add dot_swarm drift-check workflow\n\nAuto-installed via `swarm setup-drift-check`"],
-            cwd=repo_root, check=True,
-        )
-        subprocess.run(["git", "push"], cwd=repo_root, check=True)
-        click.echo("  ✓ Committed and pushed")
-    else:
-        click.echo(f"\n  Workflow written. To activate:\n")
-        click.echo(f"    git add .github/workflows/swarm-drift-check.yml")
-        click.echo(f"    git commit -m 'chore: add dot_swarm drift-check workflow'")
-        click.echo(f"    git push")
-
-    click.echo(f"\nDone. The drift check will run on every merge to dev/prod in {repo}.")
-    click.echo("See docs/DRIFT_CHECK_SETUP.md for Bedrock model access setup.")
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _install_drift_check_workflow(repo_root: Path) -> None:
-    """Install swarm-drift-check.yml into .github/workflows/ if not already present."""
-    import importlib.resources
-
-    dest = repo_root / ".github" / "workflows" / "swarm-drift-check.yml"
-    if dest.exists():
-        return
-
-    # Try to load the bundled template
-    try:
-        template_path = (
-            Path(__file__).parent.parent.parent.parent.parent  # dot_swarm root
-            / ".github" / "workflows" / "swarm-drift-check.yml"
-        )
-        if template_path.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(template_path.read_text(encoding='utf-8'), encoding='utf-8')
-            click.echo("  Created .github/workflows/swarm-drift-check.yml")
-            return
-    except Exception:
-        pass
-
-    click.echo(
-        "  Note: drift-check workflow not found at package root. "
-        "Copy dot_swarm/.github/workflows/swarm-drift-check.yml manually."
-    )
-
 
 def _find_git_root() -> Path | None:
     """Walk up from cwd to find the nearest .git/ directory."""
@@ -3866,7 +3721,7 @@ def _ensure_gitignore(swarm_dir: Path) -> None:
 
 
 def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:
-    """Run a local AI-powered code-vs-docs drift check (same logic as GHA workflow)."""
+    """Run a local AI-powered code-vs-docs drift check."""
     import subprocess
     from . import bedrock as _bedrock
     from . import ai_ops as _ai
