@@ -177,6 +177,8 @@ async def test_mcp_inspector_id_also_overridden_when_bound(swarm_paths, monkeypa
     monkeypatch.setenv("DOT_SWARM_AGENT_ID", "kolmogorov")
 
     from dot_swarm.operations import add_item, claim_item
+    from dot_swarm.roles import enable_role
+    enable_role(swarm_paths, "inspector")
     add_item(swarm_paths, "Inspect me")
     q = json.loads((await call_tool("swarm_queue", {"section": "pending", "path": "."}))[0].text)
     item_id = q[0]["id"]
