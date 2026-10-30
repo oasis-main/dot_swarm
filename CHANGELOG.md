@@ -6,6 +6,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — lifecycle and queue-format defects in 2.0.0
+
+- **`swarm unblock` crashed** with `AttributeError` (`WorkItem` has no
+  `status`). The rewrite also failed in two quieter ways: it replaced the
+  first `[BLOCKED …]` stamp in the file, whatever the item, and it never
+  touched the claims trail, so the next read restored BLOCKED. New
+  `operations.unblock_item()` appends OPEN release records for every
+  holder (plus a CLAIMED record with `--reclaim`).
+- **The inspector gate was advisory.** `swarm done` passed once the proof
+  fields existed, so a worker completed its own item. MCP `swarm_done`,
+  MCP `swarm_inspect`, the dashboard `done` route and `swarm ai` checked
+  nothing. Now only `inspect --pass` completes a gated item; inspectors
+  cannot pass items they hold a claim on; an assigned inspector is
+  enforced; MCP `fail` requires a reason and uses the role's
+  `max_iterations`. `swarm done --force` stays the human override.
+- **Folder-derived division codes corrupted IDs.** `my-api` gave
+  `MY-A-001` and `dot_swarm` gave `DOT_-001`; neither parsed, so the next
+  write dropped the item and the next `add` reused its number. The code now
+  comes from `context.md` (`**Division code**:`, which `swarm init` writes
+  and `swarm add` used to ignore), then the name map, then the folder name
+  with non-alphanumerics removed. Invalid `--code` / `--division-code`
+  values are refused.
+- **A `[` or `]` in a block reason** made the item line unparseable, with
+  the same data loss. The stamp now carries `(` `)` instead.
+- **Multi-line `notes:`** lost every continuation line at the next write.
+  Continuation lines (indented deeper than the field) are now parsed and
+  written back at column 13. A standalone `project:` line is no longer
+  dropped either.
+- **`swarm claim` overwrote `Active items`** in `state.md`. Claim now
+  appends; `done` and `inspect --pass` remove the item.
+- **An agent could not re-claim its own PARTIAL item**, though the state
+  diagram shows PARTIAL → CLAIMED.
+- **`SWARM_STALE_HOURS` was documented but never read.** `swarm audit`
+  and MCP `swarm_audit` now default to it (48 when unset or invalid).
+- **`swarm audit` skipped BLOCKED items in Pending**, which is where
+  `block` and the inspector retry limit leave them.
+- **A claim note was appended again on every rewrite** of `queue.md`.
+- **`mcp>=1.0` admitted mcp 2.x**, which removed `Server.list_tools()`;
+  a fresh install failed at import. Pinned `mcp>=1.0,<2`.
+
 ### Security — `swarm gui` handed the write token to any local client
 
 Measured on 2026-09-22 from a Docker container on the same Mac. Docker

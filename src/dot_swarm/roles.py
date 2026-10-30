@@ -148,3 +148,51 @@ def validate_proof(proof: str, required_fields: list[str]) -> list[str]:
 def check_escalation(inspect_fails: int, max_iterations: int) -> bool:
     """Return True if the failure count has reached the escalation threshold."""
     return inspect_fails >= max_iterations
+
+
+# ---------------------------------------------------------------------------
+# Inspector gate (shared by the CLI and the MCP server)
+# ---------------------------------------------------------------------------
+
+def done_gate_error(paths: SwarmPaths, item_id: str) -> str | None:
+    """Return why a direct ``done`` is refused, or None when it is allowed.
+
+    With the inspector role enabled, only ``inspect --pass`` completes an
+    item. Valid proof does not unlock ``done``: the worker would then
+    verify its own work. ``swarm done --force`` (CLI only) is the human
+    override.
+    """
+    if not is_role_enabled(paths, "inspector"):
+        return None
+    return (
+        f"Inspector role is enabled — '{item_id}' is completed only by "
+        f"'swarm inspect {item_id} --pass' from a different agent.\n"
+        f"  Worker: swarm partial {item_id} --proof "
+        f"\"branch:<name> commit:<sha> tests:<N/N>\"\n"
+        f"  Human override: swarm done {item_id} --force"
+    )
+
+
+def inspect_gate_error(
+    paths: SwarmPaths, claimed_by: str | None, inspector_id: str,
+) -> str | None:
+    """Return why *inspector_id* may not inspect the item, or None.
+
+    Refused when the role is off, when the role is assigned to a different
+    agent, or when the inspector holds a claim on the item (self-inspection).
+    """
+    role = load_role(paths, "inspector")
+    if role is None or not role.enabled:
+        return "Inspector role is not enabled. Run: swarm role enable inspector"
+    if role.assigned_agent and inspector_id != role.assigned_agent:
+        return (
+            f"Inspector role is assigned to '{role.assigned_agent}'; "
+            f"'{inspector_id}' may not inspect."
+        )
+    claimants = {a.strip() for a in (claimed_by or "").split(",") if a.strip()}
+    if inspector_id in claimants:
+        return (
+            f"'{inspector_id}' holds a claim on this item and may not inspect "
+            "its own work. A different agent must run the inspection."
+        )
+    return None

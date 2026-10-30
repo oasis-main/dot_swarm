@@ -24,6 +24,7 @@ from typing import Any, Iterator
 from .models import (
     Claim, ItemState, Priority, SwarmPaths, SwarmState, WorkItem,
     _fmt_ts, _now_ts, _parse_ts, PRIORITY_ORDER, utcnow,
+    DIVISION_CODE_RE,
 )
 
 
@@ -339,7 +340,7 @@ def resolve_claims(
                 item.claimed_at = newest_terminal.timestamp
                 if newest_terminal.state == ItemState.DONE:
                     item.done_at = newest_terminal.timestamp
-                    if newest_terminal.note:
+                    if newest_terminal.note and newest_terminal.note not in item.notes:
                         item.notes = (item.notes + " | " + newest_terminal.note).strip(" | ")
                     if item in active:
                         active.remove(item)
@@ -376,7 +377,7 @@ def resolve_claims(
             item.claimed_at = c.timestamp
             if c.proof:
                 item.proof = c.proof
-            if c.note:
+            if c.note and c.note not in item.notes:
                 item.notes = (item.notes + " | " + c.note).strip(" | ")
             item.competitors = []
 
@@ -417,26 +418,41 @@ def _parse_items(section_text: str) -> list[WorkItem]:
     """Parse a section of queue.md into WorkItems, attaching continuation fields."""
     items: list[WorkItem] = []
     current_item: WorkItem | None = None
+    notes_indent: int | None = None   # indent of the open notes field, if any
     for line in section_text.splitlines():
         item = WorkItem.parse_line(line)
+        indent = len(line) - len(line.lstrip())
         if item:
             current_item = item
             items.append(item)
+            notes_indent = None
+        elif (current_item and notes_indent is not None
+              and line.strip() and indent > notes_indent):
+            # Continuation of a multi-line notes value. Checked before
+            # FIELD_RE: a wrapped line can itself start with "refs: ...".
+            current_item.notes += "\n" + line.strip()
         elif current_item and (fm := FIELD_RE.match(line)):
+            notes_indent = None
             key, value = fm.group("key"), fm.group("value").strip()
             if key == "priority":
-                # value format: "high | project: cloud-stability"
-                for part in value.split("|"):
-                    part = part.strip()
+                # value format: "high | project: cloud-stability". The project
+                # is the rest of the line: a project value may contain "|".
+                parts = [part.strip() for part in value.split("|")]
+                for idx, part in enumerate(parts):
                     if part.startswith("project:"):
-                        current_item.project = part.split(":", 1)[1].strip()
+                        current_item.project = " | ".join(
+                            [part.split(":", 1)[1].strip()] + parts[idx + 1:])
+                        break
                     else:
                         try:
                             current_item.priority = Priority(part)
                         except ValueError:
                             pass
+            elif key == "project":
+                current_item.project = value
             elif key == "notes":
                 current_item.notes = value
+                notes_indent = indent
             elif key == "depends":
                 current_item.depends = [d.strip() for d in value.split(",")]
             elif key == "supersedes":
@@ -457,6 +473,8 @@ def _parse_items(section_text: str) -> list[WorkItem]:
                     current_item.max_retries = int(value)
                 except ValueError:
                     pass
+        elif line.strip():
+            notes_indent = None
     return items
 
 
@@ -499,6 +517,12 @@ def write_queue(
 
 def next_item_id(paths: SwarmPaths, division_code: str) -> str:
     """Compute the next available item ID for a division code."""
+    if not DIVISION_CODE_RE.match(division_code):
+        raise ValueError(
+            f"Invalid division code {division_code!r}: use letters and digits "
+            "only, starting with a letter (e.g. API, CLD2). A '-' or '_' makes "
+            "IDs that queue.md cannot parse back."
+        )
     active, pending, done = read_queue(paths)
     all_items = active + pending + done
     id_re = re.compile(rf"^{re.escape(division_code)}-(\d+)$")
@@ -546,7 +570,12 @@ def claim_item(paths: SwarmPaths, item_id: str, agent_id: str, compete: bool = F
         if target is None:
             raise ValueError(f"Item {item_id} not found in active or pending queue.")
 
-        if target.state in (ItemState.CLAIMED, ItemState.PARTIAL, ItemState.COMPETING):
+        own = (target.state in (ItemState.CLAIMED, ItemState.PARTIAL)
+               and target.claimed_by == agent_id)
+        if own:
+            # Resume own work: PARTIAL -> CLAIMED (and a fresh claim timestamp).
+            new_state = ItemState.CLAIMED
+        elif target.state in (ItemState.CLAIMED, ItemState.PARTIAL, ItemState.COMPETING):
             if not compete:
                 raise ValueError(
                     f"Item {item_id} is already claimed by {target.claimed_by}. "
@@ -646,6 +675,60 @@ def block_item(paths: SwarmPaths, item_id: str, reason: str) -> WorkItem:
 
     write_queue(paths, active, pending, done)
     supersede_claims(paths, item_id, ItemState.BLOCKED, agent_id="system", note=reason)
+    return target
+
+
+def unblock_item(
+    paths: SwarmPaths, item_id: str, agent_id: str, reclaim: bool = False,
+) -> WorkItem:
+    """Return a BLOCKED item to OPEN, or to CLAIMED by *agent_id* with reclaim.
+
+    The BLOCKED state lives in the claims trail as well as in queue.md, so a
+    queue.md edit alone is undone by the resolver on the next read. This
+    appends an OPEN release record for every agent that holds a record on
+    the item, then (with reclaim) a newer CLAIMED record for *agent_id*.
+    With reclaim, an item that is OPEN (not blocked) is claimed as normal.
+    """
+    with _item_lock(paths, item_id):
+        active, pending, done = read_queue(paths)
+        target = _find_item(active + pending, item_id)
+        if target is None:
+            raise ValueError(f"Item {item_id} not found in active or pending queue.")
+        if target.state != ItemState.BLOCKED and not (reclaim and target.state == ItemState.OPEN):
+            raise ValueError(
+                f"{item_id} is not blocked (state: {target.state.value})."
+                + (" Use --reclaim to claim an OPEN item." if not reclaim else "")
+            )
+
+        was_blocked = target.state == ItemState.BLOCKED
+        now = utcnow()
+        holders = {c.agent_id for c in read_claims(paths) if c.item_id == item_id}
+        for holder in sorted(holders):
+            write_claim(paths, Claim(
+                item_id=item_id, agent_id=holder, state=ItemState.OPEN,
+                timestamp=now, note="unblocked" if was_blocked else "",
+            ))
+        if was_blocked:
+            reason = target.notes.removeprefix("BLOCKED: ")
+            target.notes = f"unblocked (was: {reason})" if reason else ""
+        active = [i for i in active if i.id != item_id]
+        pending = [i for i in pending if i.id != item_id]
+        if reclaim:
+            claimed_at = now + timedelta(microseconds=1)   # strictly newer than the releases
+            write_claim(paths, Claim(
+                item_id=item_id, agent_id=agent_id, state=ItemState.CLAIMED,
+                timestamp=claimed_at,
+            ))
+            target.state = ItemState.CLAIMED
+            target.claimed_by = agent_id
+            target.claimed_at = claimed_at
+            active.append(target)
+        else:
+            target.state = ItemState.OPEN
+            target.claimed_by = None
+            target.claimed_at = None
+            pending.append(target)
+        write_queue(paths, active, pending, done)
     return target
 
 
@@ -954,6 +1037,32 @@ def write_state(paths: SwarmPaths, updates: dict[str, str]) -> None:
     _atomic_write(paths.state, "\n".join(new_lines) + "\n")
 
 
+_NO_ITEMS = {"", "(none)", "none", "-"}
+
+
+def merge_active_items(current: str, add: str | None = None, remove: str | None = None) -> str:
+    """Return a new 'Active items' value with *add* appended and *remove* dropped.
+
+    The value is a comma-separated list. An entry may carry free text after
+    the ID ("CLD-042 (auth)"); entries match on their first word.
+    """
+    entries = [e.strip() for e in (current or "").split(",")]
+    entries = [e for e in entries if e.lower() not in _NO_ITEMS]
+    ids = [e.split()[0] for e in entries]
+    if remove:
+        entries = [e for e, i in zip(entries, ids) if i != remove]
+        ids = [e.split()[0] for e in entries]
+    if add and add not in ids:
+        entries.append(add)
+    return ", ".join(entries) if entries else "(none)"
+
+
+def update_active_items(paths: SwarmPaths, add: str | None = None,
+                        remove: str | None = None) -> str:
+    """Read state.md 'Active items' and return the merged value for write_state."""
+    return merge_active_items(read_state(paths).get("Active items", ""), add=add, remove=remove)
+
+
 # ---------------------------------------------------------------------------
 # Memory operations
 # ---------------------------------------------------------------------------
@@ -986,14 +1095,33 @@ def append_memory(
 # Audit
 # ---------------------------------------------------------------------------
 
-def audit(paths: SwarmPaths, stale_hours: int = 48) -> list[dict]:
-    """Return list of drift findings."""
+DEFAULT_STALE_HOURS = 48
+
+
+def default_stale_hours() -> int:
+    """Stale-claim threshold: $SWARM_STALE_HOURS if it is a positive integer, else 48."""
+    try:
+        hours = int(os.environ.get("SWARM_STALE_HOURS", ""))
+    except ValueError:
+        return DEFAULT_STALE_HOURS
+    return hours if hours > 0 else DEFAULT_STALE_HOURS
+
+
+def audit(paths: SwarmPaths, stale_hours: int | None = None) -> list[dict]:
+    """Return list of drift findings.
+
+    *stale_hours* defaults to default_stale_hours() ($SWARM_STALE_HOURS or 48).
+    """
+    if stale_hours is None:
+        stale_hours = default_stale_hours()
     findings: list[dict] = []
     active, pending, done = read_queue(paths)
     now = utcnow()
     threshold = timedelta(hours=stale_hours)
 
-    for item in active:
+    # BLOCKED items usually sit in Pending (block_item and reopen_item leave
+    # them there), so scan both sections.
+    for item in active + pending:
         if item.state == ItemState.CLAIMED and item.claimed_at:
             age = now - item.claimed_at
             if age > threshold:
@@ -1081,13 +1209,32 @@ _DIVISION_CODE_MAP: dict[str, str] = {
     "oasis-cloud-wiki": "WIKI",
     "oasis-records": "REC",
     "dot-swarm": "SWC",
+    "dot_swarm": "SWC",
 }
+
+_CONTEXT_CODE_RE = re.compile(r"^\*\*Division code\*\*:\s*(?P<code>\S+)\s*$", re.MULTILINE)
 
 
 def _division_code_from_paths(paths: SwarmPaths) -> str:
-    """Infer division code from directory name."""
+    """Return the division code for item IDs.
+
+    Order: the "**Division code**:" line that `swarm init` writes into
+    context.md; then the known-name map; then the directory name with
+    every non-alphanumeric character removed, upper-cased, first 4 chars.
+    The result always matches DIVISION_CODE_RE ("my-api" -> "MYAP",
+    "dot_swarm" -> "SWC", "2fa" -> "D2FA").
+    """
+    if paths.context.exists():
+        m = _CONTEXT_CODE_RE.search(paths.context.read_text(encoding="utf-8"))
+        if m and DIVISION_CODE_RE.match(m.group("code")):
+            return m.group("code").upper()
     name = paths.root.parent.name
-    return _DIVISION_CODE_MAP.get(name, name.upper()[:4])
+    if name in _DIVISION_CODE_MAP:
+        return _DIVISION_CODE_MAP[name]
+    code = re.sub(r"[^A-Za-z0-9]", "", name).upper()
+    if not code[:1].isalpha():
+        code = "D" + code     # "D" for division: an ID must start with a letter
+    return code[:4]
 
 
 # Directory names that hold COPIES of a division rather than a division:

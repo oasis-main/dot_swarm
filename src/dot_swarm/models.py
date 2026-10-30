@@ -32,6 +32,15 @@ class ItemState(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+# A division code is the prefix of a sequential item ID (CLD in CLD-042). It
+# must not contain "-" or "_", or the ID no longer matches WorkItem.ITEM_RE.
+DIVISION_CODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+
+# Column where a multi-line notes value continues: 6-space field indent
+# plus "notes: ". Deeper-indented lines after a notes field are its text.
+NOTES_CONTINUATION_INDENT = " " * 13
+
+
 class Priority(str, Enum):
     CRITICAL = "critical"
     HIGH = "high"
@@ -125,7 +134,8 @@ class WorkItem:
         fields = []
         fields.append(f"priority: {self.priority.value} | project: {self.project}")
         if self.notes:
-            fields.append(f"notes: {self.notes}")
+            fields.append("notes: " + ("\n" + NOTES_CONTINUATION_INDENT).join(
+                ln.strip() for ln in self.notes.splitlines()))
         if self.depends:
             fields.append(f"depends: {', '.join(self.depends)}")
         if self.supersedes:
@@ -158,6 +168,10 @@ class WorkItem:
             return f"REVIEW · {self.claimed_by} · {_fmt_ts(self.claimed_at)}"
         elif self.state == ItemState.BLOCKED:
             reason = self.notes.removeprefix("BLOCKED: ") if self.notes else "unknown"
+            # The stamp sits inside [...] on one line: a newline or a bracket
+            # in the reason makes the whole item line unparseable.
+            reason = (reason.splitlines() or ["unknown"])[0]
+            reason = reason.replace("[", "(").replace("]", ")").strip() or "unknown"
             return f"BLOCKED · {reason}"
         elif self.state == ItemState.DONE:
             return f"DONE · {_fmt_ts(self.done_at or utcnow())}"

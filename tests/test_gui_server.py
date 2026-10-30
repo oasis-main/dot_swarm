@@ -290,6 +290,23 @@ def test_add_claim_done_round_trip(server: Server) -> None:
     assert any(i["id"] == item_id and i["state"] == "DONE" for i in done)
 
 
+def test_done_respects_the_inspector_gate(server: Server) -> None:
+    """With the inspector role on, the dashboard cannot complete an item."""
+    div = server.division("oasis-cloud")
+    _swarm(["role", "enable", "inspector"], cwd=Path(div["path"]))
+    try:
+        status, out = _post(server.base + "/api/item/add",
+                            {"division_path": div["path"], "description": "gated"},
+                            server.auth())
+        item_id = out["item_id"]
+        status, out = _post(server.base + "/api/item/done",
+                            {"division_path": div["path"], "item_id": item_id}, server.auth())
+        assert status == 400 and not out["ok"]
+        assert "inspect" in out["error"]
+    finally:
+        _swarm(["role", "disable", "inspector"], cwd=Path(div["path"]))
+
+
 def test_write_lands_in_the_claim_trail(server: Server) -> None:
     """The dashboard must go through the same claim trail as the CLI."""
     div = server.division("oasis-cloud")

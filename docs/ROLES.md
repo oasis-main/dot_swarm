@@ -45,6 +45,21 @@ complete without actually finishing the work. When enabled, workers cannot call
 `swarm done` directly. Instead they must attach proof of work and let a designated
 inspector agent verify it.
 
+### Enforcement
+
+The gate applies to every write path: `swarm done`, MCP `swarm_done`, the
+`swarm gui` dashboard, and `swarm ai` operations all refuse a direct done
+while the role is enabled. Proof alone does not unlock done.
+
+- `swarm inspect` / MCP `swarm_inspect` refuse an inspector that holds a
+  claim on the item (no self-inspection).
+- When the role has `--agent`, only that agent may inspect.
+- `swarm done <id> --force` (CLI only) is the human override.
+
+Agent IDs are not authenticated unless agents sign with per-agent
+identities, so the gate stops accidental self-completion, not a worker
+that deliberately runs under a different `--agent` value.
+
 ### Enabling
 
 ```bash

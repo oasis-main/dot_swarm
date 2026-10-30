@@ -22,7 +22,7 @@ authors = [
 ]
 dependencies = [
     "click>=8.1",
-    "mcp>=1.0",
+    "mcp>=1.0,<2",   # mcp 2.x removed Server.list_tools(); the server fails at import
 ]
 
 [project.urls]

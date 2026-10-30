@@ -35,9 +35,15 @@ Initialize a `.swarm/` directory in the current repo.
 ```bash
 swarm init                   # auto-detect org vs division level
 swarm init --level org       # force org level (ORG- item IDs)
-swarm init --level division  # force division level
-swarm init --code CLD        # set division code (default: derived from folder name)
+swarm init --level div       # force division level
+swarm init --division-code CLD   # set division code
 ```
+
+`swarm add` reads the division code from the `**Division code**:` line in
+`context.md`. Without that line it uses a known-name map, then the folder
+name with every character that is not a letter or digit removed (`my-api` →
+`MYAP`). A code must be letters and digits only and start with a letter;
+`swarm init` and `swarm add --code` refuse any other code.
 
 Creates: `BOOTSTRAP.md`, `context.md`, `state.md`, `queue.md`, `memory.md`
 
