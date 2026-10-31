@@ -57,6 +57,23 @@ complete without actually finishing the work. When enabled, workers cannot call
 <code class="language-plaintext highlighter-rouge">swarm done</code> directly. Instead they must attach proof of work and let a designated
 inspector agent verify it.</p>
 
+<h3 id="enforcement">Enforcement</h3>
+
+<p>The gate applies to every write path: <code class="language-plaintext highlighter-rouge">swarm done</code>, MCP <code class="language-plaintext highlighter-rouge">swarm_done</code>, the
+<code class="language-plaintext highlighter-rouge">swarm gui</code> dashboard, and <code class="language-plaintext highlighter-rouge">swarm ai</code> operations all refuse a direct done
+while the role is enabled. Proof alone does not unlock done.</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">swarm inspect</code> / MCP <code class="language-plaintext highlighter-rouge">swarm_inspect</code> refuse an inspector that holds a
+claim on the item (no self-inspection).</li>
+  <li>When the role has <code class="language-plaintext highlighter-rouge">--agent</code>, only that agent may inspect.</li>
+  <li><code class="language-plaintext highlighter-rouge">swarm done &lt;id&gt; --force</code> (CLI only) is the human override.</li>
+</ul>
+
+<p>Agent IDs are not authenticated unless agents sign with per-agent
+identities, so the gate stops accidental self-completion, not a worker
+that deliberately runs under a different <code class="language-plaintext highlighter-rouge">--agent</code> value.</p>
+
 <h3 id="enabling">Enabling</h3>
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm role <span class="nb">enable </span>inspector

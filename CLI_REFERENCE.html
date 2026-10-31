@@ -49,9 +49,15 @@ pip <span class="nb">install</span> <span class="s1">'dot-swarm[ai]'</span>     
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm init                   <span class="c"># auto-detect org vs division level</span>
 swarm init <span class="nt">--level</span> org       <span class="c"># force org level (ORG- item IDs)</span>
-swarm init <span class="nt">--level</span> division  <span class="c"># force division level</span>
-swarm init <span class="nt">--code</span> CLD        <span class="c"># set division code (default: derived from folder name)</span>
+swarm init <span class="nt">--level</span> div       <span class="c"># force division level</span>
+swarm init <span class="nt">--division-code</span> CLD   <span class="c"># set division code</span>
 </code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">swarm add</code> reads the division code from the <code class="language-plaintext highlighter-rouge">**Division code**:</code> line in
+<code class="language-plaintext highlighter-rouge">context.md</code>. Without that line it uses a known-name map, then the folder
+name with every character that is not a letter or digit removed (<code class="language-plaintext highlighter-rouge">my-api</code> →
+<code class="language-plaintext highlighter-rouge">MYAP</code>). A code must be letters and digits only and start with a letter;
+<code class="language-plaintext highlighter-rouge">swarm init</code> and <code class="language-plaintext highlighter-rouge">swarm add --code</code> refuse any other code.</p>
 
 <p>Creates: <code class="language-plaintext highlighter-rouge">BOOTSTRAP.md</code>, <code class="language-plaintext highlighter-rouge">context.md</code>, <code class="language-plaintext highlighter-rouge">state.md</code>, <code class="language-plaintext highlighter-rouge">queue.md</code>, <code class="language-plaintext highlighter-rouge">memory.md</code></p>
 
