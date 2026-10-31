@@ -16,6 +16,7 @@ from .operations import (
     partial_item, read_queue, read_state, write_state,
     _division_code_from_paths, _now_ts,
 )
+from .roles import done_gate_error
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -301,6 +302,8 @@ def execute_operations(
         kind = op.get("op", "")
         try:
             if kind == "done":
+                if gate := done_gate_error(paths, op["id"]):
+                    raise ValueError(gate)
                 item = done_item(paths, op["id"], agent_id, op.get("note", ""))
                 write_state(paths, {"last_agent": agent_id, "last_touched": _now_ts()})
                 results.append(f"  ✓ done [{item.id}]: {item.description[:60]}")

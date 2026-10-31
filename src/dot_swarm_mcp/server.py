@@ -68,6 +68,7 @@ from dot_swarm.operations import (
     read_state,
     ready_items,
     reopen_item,
+    update_active_items,
     write_state,
     _division_code_from_paths,
 )
@@ -76,6 +77,7 @@ from dot_swarm import identity as _identity
 from dot_swarm import signing as _sign
 from dot_swarm import comments as _comments
 from dot_swarm import mailbox as _mailbox
+from dot_swarm import roles as _roles
 
 server = Server("dot-swarm")
 
@@ -296,8 +298,7 @@ async def list_tools() -> list[types.Tool]:
                     "path": {"type": "string"},
                     "since_hours": {
                         "type": "integer",
-                        "description": "Stale threshold in hours (default: 48)",
-                        "default": 48,
+                        "description": "Stale threshold in hours (default: $SWARM_STALE_HOURS or 48)",
                     },
                 },
             },
@@ -534,7 +535,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             item = claim_item(paths, arguments["id"], agent_id)
             write_state(paths, {
                 "Current focus": item.description[:100],
-                "Active items": item.id,
+                "Active items": update_active_items(paths, add=item.id),
                 "last_agent": agent_id,
             })
             _audit_write(paths, "claim", agent_id, {"item_id": item.id})
@@ -543,11 +544,18 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "swarm_done":
             paths = _resolve_paths(path)
             agent_id = _effective_agent_id(arguments)
+            # Inspector gate: there is no MCP override; a human uses
+            # 'swarm done --force' from the CLI.
+            if gate := _roles.done_gate_error(paths, arguments["id"]):
+                return [types.TextContent(type="text", text=f"Error: {gate}")]
             item = done_item(
                 paths, arguments["id"], agent_id,
                 arguments.get("note", "")
             )
-            updates: dict = {"last_agent": agent_id}
+            updates: dict = {
+                "last_agent": agent_id,
+                "Active items": update_active_items(paths, remove=item.id),
+            }
             if nf := arguments.get("next_focus"):
                 updates["Current focus"] = nf
                 updates["Handoff note"] = nf
@@ -591,7 +599,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
         elif name == "swarm_audit":
             paths = _resolve_paths(path)
-            findings = audit(paths, stale_hours=arguments.get("since_hours", 48))
+            findings = audit(paths, stale_hours=arguments.get("since_hours"))
             if not findings:
                 return [types.TextContent(type="text", text="No drift detected.")]
             return [types.TextContent(type="text", text=json.dumps(findings, indent=2))]
@@ -601,26 +609,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             agent_id = _effective_agent_id(arguments)
             item = partial_item(
                 paths, arguments["id"], agent_id,
-                arguments.get("note", "")
+                arguments.get("note", ""),
+                proof=arguments.get("proof", ""),
             )
-            if proof := arguments.get("proof"):
-                item.proof = proof
-                # Partial doesn't write queue.md by default in the new Claim model,
-                # but we want to persist the proof if provided via MCP.
-                # Since we are using the new claims logic, partial_item already wrote a claim.
-                # If we need to update the claim with proof, we should handle that.
-                from dot_swarm.models import Claim, ItemState
-                from dot_swarm.operations import write_claim
-                from datetime import datetime
-                write_claim(paths, Claim(
-                    item_id=item.id,
-                    agent_id=agent_id,
-                    state=ItemState.PARTIAL,
-                    timestamp=utcnow(),
-                    proof=proof,
-                    note=arguments.get("note", "")
-                ))
-
             _audit_write(paths, "partial", agent_id, {"item_id": item.id, "proof": arguments.get("proof", "")})
             return [types.TextContent(type="text", text=f"Updated [{item.id}] (PARTIAL): {item.description}")]
 
@@ -646,13 +637,28 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             item_id = arguments["id"]
             inspector_id = _effective_agent_id(arguments, field="inspector_id")
 
+            active, pending, _ = read_queue(paths)
+            target = next((i for i in active + pending if i.id == item_id), None)
+            if target is None:
+                raise ValueError(f"Item {item_id} not found in active or pending queue.")
+            if gate := _roles.inspect_gate_error(paths, target.claimed_by, inspector_id):
+                return [types.TextContent(type="text", text=f"Error: {gate}")]
+            role = _roles.load_role(paths, "inspector")
+
             if status == "pass":
-                item = done_item(paths, item_id, inspector_id, "Inspection PASSED")
+                item = done_item(paths, item_id, inspector_id, f"inspector-pass by {inspector_id}")
+                write_state(paths, {
+                    "last_agent": inspector_id,
+                    "Active items": update_active_items(paths, remove=item_id),
+                })
                 _audit_write(paths, "inspect_pass", inspector_id, {"item_id": item_id})
                 return [types.TextContent(type="text", text=f"Inspection PASSED for [{item_id}]")]
             else:
-                reason = arguments.get("reason", "No reason provided")
-                item, exhausted = reopen_item(paths, item_id, inspector_id, reason)
+                reason = arguments.get("reason", "").strip()
+                if not reason:
+                    return [types.TextContent(type="text", text="Error: 'reason' is required when status is fail.")]
+                item, exhausted = reopen_item(paths, item_id, inspector_id, reason,
+                                              role_max_iterations=role.max_iterations)
                 _audit_write(paths, "inspect_fail", inspector_id, {"item_id": item_id, "reason": reason})
                 msg = f"Inspection FAILED for [{item_id}]: {reason}"
                 if exhausted:

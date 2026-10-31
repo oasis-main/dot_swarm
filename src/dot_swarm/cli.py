@@ -10,12 +10,13 @@ from pathlib import Path
 
 import click
 
-from .models import ItemState, Priority, SwarmPaths, utcnow
+from .models import DIVISION_CODE_RE, ItemState, Priority, SwarmPaths, utcnow
 from .operations import (
     ClaimLockTimeout,
     add_item, append_memory, audit, block_item, claim_item, crawl_directory,
     done_item, next_item_id, partial_item, ready_items, reopen_item,
     read_queue, read_state, write_queue, write_state, _division_code_from_paths,
+    default_stale_hours, unblock_item, update_active_items,
     discover_divisions, find_parent_paths, get_alignment, get_colony_summary,
     is_division_copy,
 )
@@ -99,10 +100,16 @@ def init(ctx: click.Context, level: str | None, division_code: str | None,
     level_str = "division" if is_div else "org"
     click.echo(f"Initializing .swarm/ at {level_str} level in {p}")
 
+    if division_code and not DIVISION_CODE_RE.match(division_code):
+        click.echo(
+            f"Error: invalid --division-code {division_code!r}. Use letters and "
+            "digits only, starting with a letter (e.g. API, CLD2).", err=True,
+        )
+        sys.exit(1)
     swarm_dir.mkdir(exist_ok=True)
-    code = division_code or _division_code_from_paths(
+    code = (division_code or _division_code_from_paths(
         SwarmPaths.from_swarm_dir(swarm_dir)
-    )
+    )).upper()
     name = division_name or p.name
 
     # BOOTSTRAP.md
@@ -391,7 +398,7 @@ def claim(ctx: click.Context, item_id: str, agent: str | None, compete: bool) ->
         item = claim_item(paths, item_id, agent_id, compete=compete)
         write_state(paths, {
             "Current focus": item.description[:100],
-            "Active items": item_id,
+            "Active items": update_active_items(paths, add=item_id),
             "last_agent": agent_id,
         })
         if item.state == ItemState.COMPETING:
@@ -452,30 +459,20 @@ def done(ctx: click.Context, item_id: str, agent: str | None, note: str,
     paths = _get_paths(ctx.obj["path"])
     agent_id = agent or _default_agent()
 
-    # Inspector gate: workers must go through swarm inspect, not swarm done
+    # Inspector gate: with the role enabled, only 'swarm inspect --pass'
+    # completes an item. Proof alone does not: the worker would self-verify.
     if not force:
         from . import roles as _roles
-        if _roles.is_role_enabled(paths, "inspector"):
-            active, pending, _ = read_queue(paths)
-            target = next((i for i in active + pending if i.id == item_id), None)
-            if target:
-                role = _roles.load_role(paths, "inspector")
-                missing = _roles.validate_proof(target.proof, role.require_proof_fields)
-                if missing:
-                    click.echo(
-                        f"Inspector role is enabled — '{item_id}' requires proof before done.\n"
-                        f"  Missing fields: {', '.join(missing)}\n"
-                        f"  Run: swarm partial {item_id} --proof "
-                        f"\"branch:<name> commit:<sha> tests:<N/N>\"\n"
-                        f"  Then an inspector agent runs: swarm inspect {item_id} --pass\n"
-                        f"  Or bypass with: swarm done {item_id} --force",
-                        err=True,
-                    )
-                    sys.exit(1)
+        if gate := _roles.done_gate_error(paths, item_id):
+            click.echo(gate, err=True)
+            sys.exit(1)
 
     try:
         item = done_item(paths, item_id, agent_id, note)
-        updates: dict = {"last_agent": agent_id}
+        updates: dict = {
+            "last_agent": agent_id,
+            "Active items": update_active_items(paths, remove=item_id),
+        }
         if next_focus:
             updates["Current focus"] = next_focus
             updates["Handoff note"] = next_focus
@@ -510,19 +507,23 @@ def add(ctx: click.Context, description: str, priority: str, project: str,
     """Add a new work item to the queue."""
     paths = _get_paths(ctx.obj["path"])
     division_code = code or _division_code_from_paths(paths)
-    item = add_item(
-        paths=paths,
-        description=description,
-        division_code=division_code,
-        priority=Priority(priority),
-        project=project,
-        notes=notes,
-        refs=[r.strip() for r in refs.split(",") if r.strip()],
-        depends=[d.strip() for d in depends.split(",") if d.strip()],
-        supersedes=[s.strip() for s in supersedes.split(",") if s.strip()],
-        duplicates=[d.strip() for d in duplicates.split(",") if d.strip()],
-        hash_id=hash_id,
-    )
+    try:
+        item = add_item(
+            paths=paths,
+            description=description,
+            division_code=division_code,
+            priority=Priority(priority),
+            project=project,
+            notes=notes,
+            refs=[r.strip() for r in refs.split(",") if r.strip()],
+            depends=[d.strip() for d in depends.split(",") if d.strip()],
+            supersedes=[s.strip() for s in supersedes.split(",") if s.strip()],
+            duplicates=[d.strip() for d in duplicates.split(",") if d.strip()],
+            hash_id=hash_id,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     click.echo(f"Added [{item.id}] ({priority}) {description}")
 
 
@@ -531,7 +532,8 @@ def add(ctx: click.Context, description: str, priority: str, project: str,
 # ---------------------------------------------------------------------------
 
 @cli.command(name="audit")
-@click.option("--since", default=48, help="Stale threshold in hours (default: 48)")
+@click.option("--since", type=int, default=None,
+              help="Stale threshold in hours (default: $SWARM_STALE_HOURS or 48)")
 @click.option("--pending", "show_pending", is_flag=True, default=False,
               help="List all pending items")
 @click.option("--security", "run_security", is_flag=True, default=False,
@@ -545,7 +547,7 @@ def add(ctx: click.Context, description: str, priority: str, project: str,
 @click.pass_context
 def audit_cmd(
     ctx: click.Context,
-    since: int,
+    since: int | None,
     show_pending: bool,
     run_security: bool,
     run_drift: bool,
@@ -1859,6 +1861,9 @@ def gui(ctx: click.Context, port: int, open_browser: bool, read_only: bool,
                     result = {"item_id": item.id, "message": f"{item.id} claimed by {who}"}
 
                 elif action == "done":
+                    from . import roles as _roles
+                    if gate := _roles.done_gate_error(paths, item_id):
+                        raise ValueError(gate)
                     item = done_item(paths, item_id, who, note=str(body.get("note") or "").strip())
                     result = {"item_id": item.id, "message": f"{item.id} marked done"}
 
@@ -2068,56 +2073,22 @@ def unblock_cmd(ctx: click.Context, item_id: str, reclaim: bool, agent_id: str |
       swarm unblock CLD-042           # → [OPEN]
       swarm unblock CLD-042 --reclaim # → [CLAIMED · agent · now]
     """
-    from .operations import block_item, claim_item
-    from .models import WorkItem
-
     paths = _get_paths(ctx.obj["path"])
     agent = agent_id or _default_agent()
 
-    active, pending, done = read_queue(paths)
-    all_items = active + pending + done
-    target = next((i for i in all_items if i.id.upper() == item_id.upper()), None)
-
-    if target is None:
-        click.echo(f"Item {item_id} not found.", err=True)
+    try:
+        item = unblock_item(paths, item_id, agent, reclaim=reclaim)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
         raise SystemExit(1)
 
-    if "BLOCKED" not in (target.status or "").upper() and not reclaim:
-        click.echo(f"{item_id} is not blocked (status: {target.status}). "
-                   f"Use --reclaim to re-claim an already-open item.", err=True)
-        raise SystemExit(1)
-
-    # Read raw queue, replace the status stamp
-    raw = paths.queue.read_text(encoding='utf-8')
-
-    # Replace [BLOCKED · ...] with [OPEN] or claim stamp
-    import re
     if reclaim:
-        from datetime import datetime, timezone
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
-        new_stamp = f"[CLAIMED · {agent} · {ts}]"
-        new_section = "Active"
-    else:
-        new_stamp = "[OPEN]"
-        new_section = "Pending"
-
-    # Replace the status line
-    old_pattern = re.compile(
-        r'\[BLOCKED[^\]]*\]',
-        re.IGNORECASE
-    )
-    new_raw = old_pattern.sub(new_stamp, raw, count=1)
-
-    if new_raw == raw:
-        # Fallback: just write the item back with OPEN status
-        click.echo(f"Could not find BLOCKED stamp for {item_id} — item may already be unblocked.")
-        return
-
-    from .operations import _atomic_write
-    _atomic_write(paths.queue, new_raw)
-
+        write_state(paths, {
+            "Active items": update_active_items(paths, add=item.id),
+            "last_agent": agent,
+        })
     action = f"re-claimed by {agent}" if reclaim else "returned to OPEN"
-    click.echo(f"  [{item_id}] unblocked — {action}")
+    click.echo(f"  [{item.id}] unblocked — {action}")
 
 
 # ---------------------------------------------------------------------------
@@ -2292,12 +2263,6 @@ def inspect(ctx: click.Context, item_id: str, verdict: str | None,
     paths = _get_paths(ctx.obj["path"])
     inspector_id = agent or _default_agent()
 
-    if not _roles.is_role_enabled(paths, "inspector"):
-        click.echo(
-            "Inspector role is not enabled. Run: swarm role enable inspector", err=True
-        )
-        sys.exit(1)
-
     if verdict is None:
         click.echo("Specify --pass or --fail.", err=True)
         sys.exit(1)
@@ -2306,8 +2271,13 @@ def inspect(ctx: click.Context, item_id: str, verdict: str | None,
 
     active, pending, _ = read_queue(paths)
     target = next((i for i in active + pending if i.id == item_id), None)
-    if target is None:
+    if target is None and role is not None:
         click.echo(f"Error: {item_id} not found in active or pending queue.", err=True)
+        sys.exit(1)
+
+    if gate := _roles.inspect_gate_error(
+            paths, target.claimed_by if target else None, inspector_id):
+        click.echo(gate, err=True)
         sys.exit(1)
 
     if verdict == "pass":
@@ -2318,7 +2288,10 @@ def inspect(ctx: click.Context, item_id: str, verdict: str | None,
             )
         item = done_item(paths, item_id, inspector_id,
                          note=f"inspector-pass by {inspector_id}")
-        write_state(paths, {"last_agent": inspector_id})
+        write_state(paths, {
+            "last_agent": inspector_id,
+            "Active items": update_active_items(paths, remove=item_id),
+        })
         record = _sign.sign_operation(paths.root, "inspect_pass", inspector_id,
                                       {"item_id": item_id})
         _sign.append_trail(paths.root, record)
@@ -2413,7 +2386,8 @@ def role_enable(ctx: click.Context, role_name: str, max_iterations: int,
     if role_name == "inspector":
         click.echo(f"  max_iterations: {cfg.max_iterations}")
         click.echo(f"  require_proof:  {', '.join(cfg.require_proof_fields)}")
-        click.echo("Workers must now run 'swarm partial <id> --proof \"...\"' before done.")
+        click.echo("Workers attach proof with 'swarm partial <id> --proof \"...\"'; "
+                   "only 'swarm inspect <id> --pass' from another agent completes an item.")
     if cfg.assigned_agent:
         click.echo(f"  assigned_agent: {cfg.assigned_agent}")
 
