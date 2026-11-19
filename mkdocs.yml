@@ -40,6 +40,7 @@ nav:
   - Reference:
       - CLI Reference: CLI_REFERENCE.md
       - Agent Roles: ROLES.md
+      - Product Board: PRODUCT_BOARD.md
       - Architecture & Internals: ARCHITECTURE.md
       - Integration Plan: INTEGRATION_PLAN.md
   - swarms.ai Integration:

@@ -174,6 +174,27 @@ every division's queue and state.
 Requests are handled one at a time, so the dashboard never mutates two items
 concurrently. `claim` additionally takes the same per-item lock the CLI takes.
 
+### `swarm board`
+
+Keep a product board in `.swarm/PRODUCTS.md` and show it as a static page. The
+board is the layer above the queues: products by tier, the next step, open tasks
+with one owner each, and the decisions that wait on the operator.
+
+```bash
+swarm board init                   # write a starter .swarm/PRODUCTS.md
+swarm board init --force           # replace an existing board with the starter
+swarm board sync                   # write .swarm/board/ (index.html, board.css, board.js, board-data.js)
+swarm board sync --watch           # write board-data.js again each time PRODUCTS.md changes
+```
+
+Open `.swarm/board/index.html` from the printed `file://` URL. The page loads
+`board-data.js` again every 30 seconds. No server runs and no port opens, so the
+page needs no token, unlike `swarm gui`. `swarm board sync` exits 1 when
+`PRODUCTS.md` has no board markers, and prints a warning for an unknown tier,
+an unknown stage, or a task with no owner.
+
+See [Product Board](PRODUCT_BOARD.md) for the file format and the agent rules.
+
 ---
 
 ## Work Item Lifecycle
