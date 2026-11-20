@@ -48,3 +48,6 @@ where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[tool.setuptools.package-data]
+dot_swarm = ["templates/*.html", "templates/board/*"]

@@ -3752,5 +3752,99 @@ def _run_local_drift_check(ctx: click.Context, paths: "SwarmPaths") -> None:
         click.echo(f"  ⚠  Drift check error: {e}")
 
 
+# ---------------------------------------------------------------------------
+# swarm board — product board (static page, no server)
+# ---------------------------------------------------------------------------
+
+@cli.group(name="board")
+@click.pass_context
+def board_group(ctx: click.Context) -> None:
+    """Product board: one PRODUCTS.md above the queues, shown as a static page.
+
+    .swarm/PRODUCTS.md lists each product with its tier, stage, goal, next
+    step, tasks (with one owner each) and the decisions that wait on the
+    operator. `swarm board sync` writes a page to .swarm/board/index.html.
+    Open the page from a file:// URL. The page loads board-data.js again
+    every 30 seconds.
+
+    The board needs no server and no token. `swarm gui` serves the queues
+    over HTTP on 127.0.0.1 and needs a per-run token, because the loopback
+    address is not a trust boundary. The board page is plain files, so no
+    port is open and no local process can reach it over the network.
+
+    \b
+    swarm board init            write a starter .swarm/PRODUCTS.md
+    swarm board sync            write the page and board-data.js
+    swarm board sync --watch    write them again each time PRODUCTS.md changes
+
+    See docs/PRODUCT_BOARD.md for the file format and the agent rules.
+    """
+
+
+@board_group.command(name="init")
+@click.option("--force", is_flag=True, default=False,
+              help="Replace an existing PRODUCTS.md with the starter board")
+@click.pass_context
+def board_init(ctx: click.Context, force: bool) -> None:
+    """Write a starter .swarm/PRODUCTS.md with example products."""
+    from . import board as _board
+
+    paths = _get_paths(ctx.obj["path"])
+    try:
+        target = _board.init_board(paths.root, force=force)
+    except FileExistsError as exc:
+        click.echo(f"Error: {exc} exists. Use --force to replace it.", err=True)
+        sys.exit(1)
+    click.echo(f"✓ Wrote {target}")
+    click.echo("  Replace the example products, then run: swarm board sync")
+
+
+def _report_sync(result) -> None:
+    if result.error:
+        click.echo(f"✗ {result.error}. The page keeps the last good board.", err=True)
+    else:
+        n = len(result.board.products)
+        click.echo(f"✓ {datetime.now().strftime('%H:%M:%S')} {n} product{'s' if n != 1 else ''} "
+                   f"-> {result.data_file}")
+    for w in result.warnings:
+        click.echo(f"  ⚠  {w}", err=True)
+
+
+@board_group.command(name="sync")
+@click.option("--watch", is_flag=True, default=False,
+              help="Keep running; write board-data.js again each time PRODUCTS.md changes")
+@click.option("--interval", default=1.0, show_default=True, type=float,
+              help="Seconds between file checks with --watch")
+@click.pass_context
+def board_sync(ctx: click.Context, watch: bool, interval: float) -> None:
+    """Write .swarm/board/ (index.html, board.css, board.js, board-data.js).
+
+    board-data.js is written even when PRODUCTS.md does not parse. The page
+    then shows the error and keeps the last good board. Without --watch the
+    command exits 1 on a parse error.
+    """
+    from . import board as _board
+
+    paths = _get_paths(ctx.obj["path"])
+    try:
+        result = _board.sync_board(paths.root)
+    except FileNotFoundError:
+        click.echo(f"Error: {_board.board_path(paths.root)} not found. "
+                   "Run 'swarm board init' first.", err=True)
+        sys.exit(1)
+    _report_sync(result)
+    index = _board.page_dir(paths.root) / "index.html"
+    click.echo(f"  Open: {index.resolve().as_uri()}")
+    if not watch:
+        if result.error:
+            sys.exit(1)
+        return
+    click.echo(f"  Watching {_board.board_path(paths.root)} (Ctrl-C stops)")
+    try:
+        _board.watch_board(paths.root, _report_sync, interval=interval)
+    except KeyboardInterrupt:
+        click.echo("\n  Stopped.")
+
+
 if __name__ == "__main__":
     cli(obj={})

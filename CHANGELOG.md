@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — product board
+
+- **`swarm board init` / `swarm board sync [--watch]`.** A product board in
+  `.swarm/PRODUCTS.md` sits above the queues: products by tier (`P1`–`P3`),
+  stage, next step, tasks with one owner tag each, and decisions for the
+  operator by capacity tier (`T1`–`T3`). `sync` writes a static page to
+  `.swarm/board/` that works from a `file://` URL and reloads its data every
+  30 seconds. No server and no token, unlike `swarm gui`.
+- **Agent skill** `skills/product-board/SKILL.md`: read the board at session
+  start, claim in `queue.md`, and file a change request unless you are the
+  operator or the board editor.
+- **Packaging.** `templates/*.html` and `templates/board/*` are now declared
+  package data, so a built wheel carries the page templates.
+
 ### Fixed — lifecycle and queue-format defects in 2.0.0
 
 - **`swarm unblock` crashed** with `AttributeError` (`WorkItem` has no

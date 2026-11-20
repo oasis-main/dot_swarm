@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product Board</title>
+  <link rel="stylesheet" href="board.css">
+</head>
+<body>
+  <!-- Written by `swarm board sync`. Do not edit: the next sync replaces this file. -->
+  <header>
+    <h1>Product board</h1>
+    <p id="updated"></p>
+    <p id="status" data-kind="ok" role="status">Loading the board...</p>
+  </header>
+  <main>
+    <section aria-labelledby="h-dec">
+      <div class="row">
+        <h2 id="h-dec">Decisions for the operator</h2>
+        <div id="capacity" class="seg" role="group" aria-label="Capacity this week"></div>
+      </div>
+      <div id="decisions"></div>
+    </section>
+    <section aria-labelledby="h-prod">
+      <h2 id="h-prod">Products</h2>
+      <div id="products"></div>
+    </section>
+    <section aria-labelledby="h-own">
+      <div class="row">
+        <h2 id="h-own">Open work by owner</h2>
+        <label>Show <select id="owner"></select></label>
+      </div>
+      <div id="owners"></div>
+    </section>
+  </main>
+  <footer>
+    Source: <code>.swarm/PRODUCTS.md</code>. Edit that file, then run
+    <code>swarm board sync</code> (or keep <code>swarm board sync --watch</code> running).
+    The page checks for a new board every 30 seconds.
+  </footer>
+  <script src="board.js"></script>
+</body>
+</html>
