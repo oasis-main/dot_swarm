@@ -1,0 +1,362 @@
+<h1 id="product-board">Product Board</h1>
+
+<p>The product board is one markdown file, <code class="language-plaintext highlighter-rouge">.swarm/PRODUCTS.md</code>, above the
+<code class="language-plaintext highlighter-rouge">queue.md</code> files. The board shows each product, where the product stands, the
+next step, the open tasks with one owner each, and the decisions that wait on
+the operator (the human who sets direction for the agents).</p>
+
+<p>The queues hold the work items. The board holds the view across products: which
+product comes first, who owns each task, and which decision blocks which step.
+Several kinds of agent can read one board: Claude Code sessions, long-running
+bots, and other coding harnesses.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm board init            <span class="c"># write a starter .swarm/PRODUCTS.md</span>
+swarm board <span class="nb">sync</span>            <span class="c"># write .swarm/board/index.html and board-data.js</span>
+swarm board <span class="nb">sync</span> <span class="nt">--watch</span>    <span class="c"># write them again each time PRODUCTS.md changes</span>
+</code></pre></div></div>
+
+<p>Open <code class="language-plaintext highlighter-rouge">.swarm/board/index.html</code> in a browser. <code class="language-plaintext highlighter-rouge">swarm board sync</code> prints the
+file:// URL. The page loads <code class="language-plaintext highlighter-rouge">board-data.js</code> again every 30 seconds and draws the
+board again when the text changed.</p>
+
+<hr />
+
+<h2 id="swarm-board-and-swarm-gui"><code class="language-plaintext highlighter-rouge">swarm board</code> and <code class="language-plaintext highlighter-rouge">swarm gui</code></h2>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th><code class="language-plaintext highlighter-rouge">swarm board</code></th>
+      <th><code class="language-plaintext highlighter-rouge">swarm gui</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Shows</td>
+      <td><code class="language-plaintext highlighter-rouge">PRODUCTS.md</code>: products, owners, decisions</td>
+      <td>Every <code class="language-plaintext highlighter-rouge">queue.md</code>, <code class="language-plaintext highlighter-rouge">state.md</code> and the commit trail</td>
+    </tr>
+    <tr>
+      <td>Writes</td>
+      <td>Nothing. The page is read-only.</td>
+      <td>Add, claim, done, block, comment</td>
+    </tr>
+    <tr>
+      <td>Runs</td>
+      <td>No process (or <code class="language-plaintext highlighter-rouge">sync --watch</code>, which only writes files)</td>
+      <td>An HTTP server on <code class="language-plaintext highlighter-rouge">127.0.0.1</code></td>
+    </tr>
+    <tr>
+      <td>Access control</td>
+      <td>File permissions</td>
+      <td>A per-run token on every API route</td>
+    </tr>
+    <tr>
+      <td>Opens from</td>
+      <td>A <code class="language-plaintext highlighter-rouge">file://</code> URL</td>
+      <td><code class="language-plaintext highlighter-rouge">http://127.0.0.1:PORT/#t=TOKEN</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">swarm gui</code> needs a per-run token because the loopback address is not a trust
+boundary: every local process, and a Docker container through
+<code class="language-plaintext highlighter-rouge">host.docker.internal</code>, can reach a loopback port. <code class="language-plaintext highlighter-rouge">swarm board</code> opens no port.
+The page is plain files that a browser reads from disk, so a local process can
+read the board only if the process can already read <code class="language-plaintext highlighter-rouge">.swarm/</code>.</p>
+
+<p>A browser does not let <code class="language-plaintext highlighter-rouge">fetch()</code> read a <code class="language-plaintext highlighter-rouge">file://</code> URL. A <code class="language-plaintext highlighter-rouge">&lt;script&gt;</code> tag can load
+a <code class="language-plaintext highlighter-rouge">file://</code> URL, so <code class="language-plaintext highlighter-rouge">swarm board sync</code> puts the board text in a small script,
+<code class="language-plaintext highlighter-rouge">board-data.js</code>, that sets <code class="language-plaintext highlighter-rouge">window.BOARD</code>.</p>
+
+<hr />
+
+<h2 id="files">Files</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Path</th>
+      <th>Written by</th>
+      <th>Edit it?</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">.swarm/PRODUCTS.md</code></td>
+      <td><code class="language-plaintext highlighter-rouge">swarm board init</code> (once), then people and agents</td>
+      <td>Yes: only the operator and the board editor</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">.swarm/board/index.html</code>, <code class="language-plaintext highlighter-rouge">board.css</code>, <code class="language-plaintext highlighter-rouge">board.js</code></td>
+      <td><code class="language-plaintext highlighter-rouge">swarm board sync</code></td>
+      <td>No. Each sync writes them again.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">.swarm/board/board-data.js</code></td>
+      <td><code class="language-plaintext highlighter-rouge">swarm board sync</code></td>
+      <td>No. The file holds a copy of <code class="language-plaintext highlighter-rouge">PRODUCTS.md</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The files in <code class="language-plaintext highlighter-rouge">.swarm/board/</code> are generated. Add <code class="language-plaintext highlighter-rouge">.swarm/board/</code> to <code class="language-plaintext highlighter-rouge">.gitignore</code>
+if the team does not want them in git.</p>
+
+<p><code class="language-plaintext highlighter-rouge">swarm board sync</code> writes <code class="language-plaintext highlighter-rouge">board-data.js</code> even when <code class="language-plaintext highlighter-rouge">PRODUCTS.md</code> does not parse.
+The page then shows the error and keeps the last good board on screen. Without
+<code class="language-plaintext highlighter-rouge">--watch</code>, the command exits with code 1 on a parse error. The command also
+prints a warning for an unknown tier, an unknown stage, or a task with no owner.</p>
+
+<p>Each write goes to a temporary file first, then a rename replaces the old file.
+So the page never reads a half-written file.</p>
+
+<hr />
+
+<h2 id="file-format">File format</h2>
+
+<p>Free text can go above the board. The parser reads three header lines anywhere
+in the file:</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Board updated: 2026-01-05 by claude-code (short note on the change)
+Board editor: claude-code
+Operator: the operator
+</code></pre></div></div>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">Board updated:</code> shows at the top of the page.</li>
+  <li><code class="language-plaintext highlighter-rouge">Board editor:</code> names the one agent tag that edits the board with the operator.</li>
+  <li><code class="language-plaintext highlighter-rouge">Operator:</code> is the display name in “Decisions for …”. The default is “the operator”.</li>
+</ul>
+
+<p>The products go between two markers. The parser ignores every line outside them.</p>
+
+<div class="language-markdown highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">&lt;!-- board:start --&gt;</span>
+
+<span class="gu">## Example notes app</span>
+<span class="p">-</span> tier: P1
+<span class="p">-</span> stage: building
+<span class="p">-</span> epic: EPIC-NOTES
+<span class="p">-</span> repos: notes-web, notes-api
+<span class="p">-</span> goal: A small team can write, tag and search shared notes in the browser.
+<span class="p">-</span> now: The editor and the API for notes are merged. Search is not started.
+<span class="p">-</span> next: Add full-text search, then open a private beta for five teams.
+<span class="p">-</span> updated: 2026-01-05
+
+Tasks:
+<span class="p">-</span> [/] NOTES-004 | owner: harness | status: draft PR | Full-text search on the note body
+<span class="p">-</span> [ ] new | owner: fleet:builder | status: needs a directive | Nightly export of all notes to JSON
+<span class="p">-</span> [!] NOTES-007 | owner: operator | status: waits on a decision | Choose the hosting region
+
+Decisions:
+<span class="p">-</span> T1 | Choose the hosting region for the beta | Blocks the beta date | ref: notes-api/.swarm/queue.md
+
+<span class="c">&lt;!-- board:end --&gt;</span>
+</code></pre></div></div>
+
+<h3 id="product">Product</h3>
+
+<p>A product starts at a <code class="language-plaintext highlighter-rouge">## </code> heading. The heading text is the product name.</p>
+
+<p>Field lines have the form <code class="language-plaintext highlighter-rouge">- key: value</code>. The page uses these keys:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Key</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">tier</code></td>
+      <td><code class="language-plaintext highlighter-rouge">P1</code> launch focus, <code class="language-plaintext highlighter-rouge">P2</code> keep moving, <code class="language-plaintext highlighter-rouge">P3</code> parked. The page does not show a product with another tier.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">stage</code></td>
+      <td><code class="language-plaintext highlighter-rouge">idea</code>, <code class="language-plaintext highlighter-rouge">design</code>, <code class="language-plaintext highlighter-rouge">building</code>, <code class="language-plaintext highlighter-rouge">beta</code> or <code class="language-plaintext highlighter-rouge">live</code>. The first word counts, so <code class="language-plaintext highlighter-rouge">beta (closed)</code> is <code class="language-plaintext highlighter-rouge">beta</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">goal</code>, <code class="language-plaintext highlighter-rouge">now</code>, <code class="language-plaintext highlighter-rouge">next</code></td>
+      <td>One line each. Text in backticks shows as code.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">epic</code>, <code class="language-plaintext highlighter-rouge">repos</code>, <code class="language-plaintext highlighter-rouge">updated</code></td>
+      <td>Shown in small text under the goal.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The parser keeps other lowercase keys, but the page does not show them.</p>
+
+<h3 id="tasks">Tasks</h3>
+
+<p>After a <code class="language-plaintext highlighter-rouge">Tasks:</code> line, each task has the form:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- [state] ID | owner: TAG | status: TEXT | title
+</code></pre></div></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>State</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">[ ]</code></td>
+      <td>open</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">[&gt;]</code></td>
+      <td>claimed</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">[/]</code></td>
+      <td>in progress</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">[!]</code></td>
+      <td>blocked</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">[x]</code></td>
+      <td>done</td>
+    </tr>
+  </tbody>
+</table>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">ID</code> is the item ID in a <code class="language-plaintext highlighter-rouge">queue.md</code> file. The ID <code class="language-plaintext highlighter-rouge">new</code> means that no queue
+item exists yet.</li>
+  <li><code class="language-plaintext highlighter-rouge">owner:</code> and <code class="language-plaintext highlighter-rouge">status:</code> are optional and can come in any order after the ID. A
+task with no <code class="language-plaintext highlighter-rouge">owner:</code> is “not assigned”, and <code class="language-plaintext highlighter-rouge">swarm board sync</code> warns.</li>
+  <li>
+    <table>
+      <tbody>
+        <tr>
+          <td>The other parts make the title. A title that contains `</td>
+          <td>` stays in one piece.</td>
+        </tr>
+      </tbody>
+    </table>
+  </li>
+</ul>
+
+<h3 id="owner-tags">Owner tags</h3>
+
+<p>An owner tag is <code class="language-plaintext highlighter-rouge">group</code> or <code class="language-plaintext highlighter-rouge">group:name</code>. The page groups open tasks by the part
+before the colon. A suggested set of groups:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Tag</th>
+      <th>Owner</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">operator</code></td>
+      <td>The operator: money, legal, contracts, outreach, approvals, physical hardware, product choices.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">claude-code</code></td>
+      <td>Claude Code sessions on the operator’s machine.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fleet:&lt;name&gt;</code></td>
+      <td>One long-running bot. The bot starts a task only under an active directive from the operator.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">harness</code></td>
+      <td>Any other coding agent session, for self-contained code work.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Any other tag works too. The page shows the operator first, then the board
+editor’s group, then the other groups by name.</p>
+
+<h3 id="decisions">Decisions</h3>
+
+<p>After a <code class="language-plaintext highlighter-rouge">Decisions:</code> line, each decision has the form:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- T1 | decision | context | ref: path
+</code></pre></div></div>
+
+<p>The tier sorts decisions by the capacity that the operator has:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Tier</th>
+      <th>Meaning</th>
+      <th>Shown at capacity</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">T1</code></td>
+      <td>Blocks a launch step or has a date.</td>
+      <td>low, medium, high</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">T2</code></td>
+      <td>Needed in the next few weeks.</td>
+      <td>medium, high</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">T3</code></td>
+      <td>Nothing waits on it yet.</td>
+      <td>high</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The page has a capacity switch: low, medium or high. The page keeps the
+selection in <code class="language-plaintext highlighter-rouge">localStorage</code> for that browser.</p>
+
+<hr />
+
+<h2 id="rules-for-agents">Rules for agents</h2>
+
+<p>The starter board from <code class="language-plaintext highlighter-rouge">swarm board init</code> puts these rules in the file. The
+agent skill in <code class="language-plaintext highlighter-rouge">skills/product-board/SKILL.md</code> gives the same rules to a Claude
+Code session.</p>
+
+<ol>
+  <li>Read <code class="language-plaintext highlighter-rouge">PRODUCTS.md</code> at session start, after <code class="language-plaintext highlighter-rouge">BOOTSTRAP.md</code>. Work on a P1
+product before a P2 product.</li>
+  <li>Claim work in the <code class="language-plaintext highlighter-rouge">queue.md</code> file that holds the item ID, not in
+<code class="language-plaintext highlighter-rouge">PRODUCTS.md</code>. The claim protocol does not change.</li>
+  <li>A task has one owner tag. Take only a task with your own tag.</li>
+  <li>Only the operator and the board editor edit <code class="language-plaintext highlighter-rouge">PRODUCTS.md</code>. Any other agent
+writes a change request in its own <code class="language-plaintext highlighter-rouge">state.md</code> or handoff note. The board
+editor then updates the board.</li>
+  <li>An item ID of <code class="language-plaintext highlighter-rouge">new</code> means that no queue item exists yet. The agent that
+starts the work creates the queue item first.</li>
+</ol>
+
+<p>To install the skill for Claude Code, copy the folder into the skills folder of
+the repository:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> .claude/skills <span class="o">&amp;&amp;</span> <span class="nb">cp</span> <span class="nt">-R</span> path/to/dot_swarm/skills/product-board .claude/skills/
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="parser">Parser</h2>
+
+<p>There are two copies of the parser:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">dot_swarm/board.py</code> (<code class="language-plaintext highlighter-rouge">parse_board</code>) for <code class="language-plaintext highlighter-rouge">swarm board sync</code> and for scripts.</li>
+  <li><code class="language-plaintext highlighter-rouge">templates/board/board.js</code> (<code class="language-plaintext highlighter-rouge">parseBoard</code>) for the page. Node can also load
+this file with <code class="language-plaintext highlighter-rouge">require()</code>.</li>
+</ul>
+
+<p><code class="language-plaintext highlighter-rouge">tests/test_board.py</code> parses one sample with both copies and compares the
+results when Node is installed. Change both copies together.</p>

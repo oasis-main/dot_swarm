@@ -213,6 +213,26 @@ every division’s queue and state.</p>
 <p>Requests are handled one at a time, so the dashboard never mutates two items
 concurrently. <code class="language-plaintext highlighter-rouge">claim</code> additionally takes the same per-item lock the CLI takes.</p>
 
+<h3 id="swarm-board"><code class="language-plaintext highlighter-rouge">swarm board</code></h3>
+
+<p>Keep a product board in <code class="language-plaintext highlighter-rouge">.swarm/PRODUCTS.md</code> and show it as a static page. The
+board is the layer above the queues: products by tier, the next step, open tasks
+with one owner each, and the decisions that wait on the operator.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>swarm board init                   <span class="c"># write a starter .swarm/PRODUCTS.md</span>
+swarm board init <span class="nt">--force</span>           <span class="c"># replace an existing board with the starter</span>
+swarm board <span class="nb">sync</span>                   <span class="c"># write .swarm/board/ (index.html, board.css, board.js, board-data.js)</span>
+swarm board <span class="nb">sync</span> <span class="nt">--watch</span>           <span class="c"># write board-data.js again each time PRODUCTS.md changes</span>
+</code></pre></div></div>
+
+<p>Open <code class="language-plaintext highlighter-rouge">.swarm/board/index.html</code> from the printed <code class="language-plaintext highlighter-rouge">file://</code> URL. The page loads
+<code class="language-plaintext highlighter-rouge">board-data.js</code> again every 30 seconds. No server runs and no port opens, so the
+page needs no token, unlike <code class="language-plaintext highlighter-rouge">swarm gui</code>. <code class="language-plaintext highlighter-rouge">swarm board sync</code> exits 1 when
+<code class="language-plaintext highlighter-rouge">PRODUCTS.md</code> has no board markers, and prints a warning for an unknown tier,
+an unknown stage, or a task with no owner.</p>
+
+<p>See <a href="PRODUCT_BOARD.md">Product Board</a> for the file format and the agent rules.</p>
+
 <hr />
 
 <h2 id="work-item-lifecycle">Work Item Lifecycle</h2>
